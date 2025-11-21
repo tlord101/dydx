@@ -1,7 +1,12 @@
 import React, { useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
+import { useAppKit } from '@reown/appkit/react';
+import { useAccount } from 'wagmi';
+import TradingViewChart from './TradingViewChart';
 
 const TradingDetail = ({ asset, onBack }) => {
+  const { open } = useAppKit();
+  const { address, isConnected } = useAccount();
   const [selectedTimeframe, setSelectedTimeframe] = useState('1h');
   const [activeTab, setActiveTab] = useState('position');
   const [showOrderLines, setShowOrderLines] = useState(true);
@@ -87,38 +92,7 @@ const TradingDetail = ({ asset, onBack }) => {
 
       {/* Chart Area with candlestick placeholder */}
       <div className="bg-background relative" style={{ height: '280px' }}>
-        <div className="absolute inset-0 flex items-center justify-center">
-          <div className="w-full h-full px-8 py-4 flex items-end justify-around">
-            {/* Simplified candlestick representation */}
-            {[80, 60, 75, 45, 70, 50, 65, 40, 55, 35, 50, 30, 45, 25, 40, 30].map((height, i) => (
-              <div key={i} className="flex flex-col items-center justify-end" style={{ height: '100%' }}>
-                <div 
-                  className={i % 3 === 0 ? 'bg-red-500 w-1' : 'bg-green-500 w-1'}
-                  style={{ height: `${height}%` }}
-                />
-                <div 
-                  className={i % 3 === 0 ? 'bg-red-500 w-2' : 'bg-green-500 w-2'}
-                  style={{ height: `${Math.max(20, height - 10)}%` }}
-                />
-              </div>
-            ))}
-          </div>
-          {/* Y-axis labels */}
-          <div className="absolute left-2 top-0 bottom-0 flex flex-col justify-between text-xs text-textGrey py-4">
-            <span>1</span>
-            <span>1</span>
-          </div>
-        </div>
-        {/* Volume bars at bottom */}
-        <div className="absolute bottom-0 left-0 right-0 h-12 px-8 flex items-end justify-around">
-          {[30, 45, 25, 50, 35, 40, 30, 55, 25, 35, 40, 30, 35, 25, 30, 20].map((height, i) => (
-            <div 
-              key={i}
-              className={i % 3 === 0 ? 'bg-red-500 opacity-30 w-1' : 'bg-green-500 opacity-30 w-1'}
-              style={{ height: `${height}%` }}
-            />
-          ))}
-        </div>
+        <TradingViewChart symbol={asset.ticker} />
       </div>
 
       {/* Timeframe Selectors */}
@@ -179,12 +153,27 @@ const TradingDetail = ({ asset, onBack }) => {
 
       {/* Sign in Button */}
       <div className="bg-card px-4 py-4 border-t border-gray-800">
-        <button
-          onClick={onBack}
-          className="w-full bg-primary text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity"
-        >
-          Sign in
-        </button>
+        {isConnected ? (
+          <div className="space-y-2">
+            <button
+              className="w-full bg-green-600 text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity"
+            >
+              Buy {asset.ticker}
+            </button>
+            <button
+              className="w-full bg-red-600 text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity"
+            >
+              Sell {asset.ticker}
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => open()}
+            className="w-full bg-primary text-white py-3 rounded-lg font-medium hover:opacity-90 transition-opacity"
+          >
+            Sign in
+          </button>
+        )}
       </div>
     </div>
   );

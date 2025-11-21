@@ -1,7 +1,13 @@
 import React from 'react';
 import { X } from 'lucide-react';
+import { useAppKit } from '@reown/appkit/react';
+import { useAccount, useDisconnect } from 'wagmi';
 
 const AuthModal = ({ isOpen, onClose }) => {
+  const { open } = useAppKit();
+  const { address, isConnected } = useAccount();
+  const { disconnect } = useDisconnect();
+
   if (!isOpen) return null;
 
   const web2Options = [
@@ -18,7 +24,20 @@ const AuthModal = ({ isOpen, onClose }) => {
 
   const handleOptionClick = (option) => {
     console.log(`Selected: ${option}`);
-    // In a real app, this would trigger the authentication flow
+    
+    // Open AppKit modal for wallet connection
+    if (['MetaMask', 'Trust Wallet', 'OKX Wallet', 'WalletConnect'].includes(option)) {
+      open();
+      onClose();
+    } else {
+      // For Google and Apple, open AppKit with email/social
+      open({ view: 'Connect' });
+      onClose();
+    }
+  };
+
+  const handleEmailSubmit = () => {
+    open({ view: 'Connect' });
     onClose();
   };
 
@@ -77,8 +96,12 @@ const AuthModal = ({ isOpen, onClose }) => {
               type="email"
               placeholder="Enter your email"
               className="w-full bg-background text-white py-3 px-4 rounded-lg outline-none focus:ring-2 focus:ring-primary transition-all"
+              onKeyDown={(e) => e.key === 'Enter' && handleEmailSubmit()}
             />
-            <button className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-background rounded">
+            <button 
+              onClick={handleEmailSubmit}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-background rounded hover:bg-primary transition-colors"
+            >
               <svg className="w-5 h-5 text-textGrey" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
               </svg>
@@ -112,7 +135,13 @@ const AuthModal = ({ isOpen, onClose }) => {
         </div>
 
         {/* View more wallets */}
-        <button className="w-full text-textGrey text-sm py-2 flex items-center justify-center gap-2 hover:text-white transition-colors">
+        <button 
+          onClick={() => {
+            open();
+            onClose();
+          }}
+          className="w-full text-textGrey text-sm py-2 flex items-center justify-center gap-2 hover:text-white transition-colors"
+        >
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
           </svg>
