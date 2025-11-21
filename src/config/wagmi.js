@@ -1,6 +1,6 @@
 import { createAppKit } from '@reown/appkit/react';
 import { WagmiAdapter } from '@reown/appkit-adapter-wagmi';
-import { mainnet, arbitrum, polygon, optimism, base } from '@reown/appkit/networks';
+import { mainnet, arbitrum } from '@reown/appkit/networks';
 import { QueryClient } from '@tanstack/react-query';
 
 // 1. Get projectId from https://cloud.reown.com
@@ -14,7 +14,7 @@ const metadata = {
   icons: ['https://avatars.githubusercontent.com/u/37784886']
 };
 
-export const networks = [mainnet, arbitrum, polygon, optimism, base];
+export const networks = [mainnet, arbitrum];
 
 // 3. Create Wagmi Adapter
 export const wagmiAdapter = new WagmiAdapter({
@@ -33,10 +33,10 @@ export const modal = createAppKit({
   projectId,
   metadata,
   features: {
-    analytics: true,
-    email: true,
-    socials: ['google', 'apple'],
-    emailShowWallets: true
+    analytics: false,
+    email: false,
+    socials: [],
+    emailShowWallets: false
   },
   themeMode: 'dark',
   themeVariables: {
