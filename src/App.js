@@ -1,23 +1,49 @@
-import logo from './logo.svg';
-import './App.css';
+import React, { useState } from 'react';
+import Dashboard from './components/Dashboard';
+import TradingDetail from './components/TradingDetail';
+import AuthModal from './components/AuthModal';
 
 function App() {
+  const [currentView, setCurrentView] = useState('dashboard');
+  const [selectedAsset, setSelectedAsset] = useState(null);
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+
+  const handleAssetClick = (asset) => {
+    setSelectedAsset(asset);
+    setCurrentView('trading');
+  };
+
+  const handleBackToDashboard = () => {
+    setCurrentView('dashboard');
+    setSelectedAsset(null);
+  };
+
+  const handleAuthClick = () => {
+    setIsAuthModalOpen(true);
+  };
+
+  const handleCloseAuthModal = () => {
+    setIsAuthModalOpen(false);
+  };
+
   return (
     <div className="App">
-      <header className="App-header">
-        <img src={logo} className="App-logo" alt="logo" />
-        <p>
-          Edit <code>src/App.js</code> and save to reload.
-        </p>
-        <a
-          className="App-link"
-          href="https://reactjs.org"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          Learn React
-        </a>
-      </header>
+      {currentView === 'dashboard' ? (
+        <Dashboard 
+          onAssetClick={handleAssetClick}
+          onAuthClick={handleAuthClick}
+        />
+      ) : (
+        <TradingDetail 
+          asset={selectedAsset}
+          onBack={handleBackToDashboard}
+        />
+      )}
+      
+      <AuthModal 
+        isOpen={isAuthModalOpen}
+        onClose={handleCloseAuthModal}
+      />
     </div>
   );
 }
