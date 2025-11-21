@@ -81,7 +81,7 @@ const TradingViewChart = ({ symbol = 'BTC' }) => {
     chartRef.current = chart;
 
     // Create candlestick series
-    const candlestickSeries = chart.addCandlestickSeries({
+    const candlestickSeries = chart.addSeries('Candlestick', {
       upColor: '#00D395',
       downColor: '#FF4D4D',
       borderVisible: false,
@@ -92,7 +92,7 @@ const TradingViewChart = ({ symbol = 'BTC' }) => {
     candlestickSeriesRef.current = candlestickSeries;
 
     // Create volume series
-    const volumeSeries = chart.addHistogramSeries({
+    const volumeSeries = chart.addSeries('Histogram', {
       priceFormat: {
         type: 'volume',
       },
