@@ -1,70 +1,150 @@
-# Getting Started with Create React App
+# DEX Wallet - Decentralized Exchange Web3 App
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+A mobile-responsive, high-fidelity UI for a decentralized exchange (DEX) wallet application built with React, Tailwind CSS, and Lucide React icons.
 
-## Available Scripts
+## Features
 
-In the project directory, you can run:
+### 🎨 Design
+- **Deep Dark Mode Theme**
+  - Background: `#101014`
+  - Cards/Elements: `#1C1C28`
+  - Primary Action Color: `#6669FF` (Purple/Blue)
+  - Text: White and Grey `#888888`
+- **Typography**
+  - Sans-serif for regular text
+  - Monospace for price data (prevents layout shifts)
 
-### `npm start`
+### 📱 Views
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+#### 1. Dashboard View
+- Total Portfolio Value display
+- "Get Started" CTA button (full-width, primary color)
+- Markets list showing crypto assets:
+  - Bitcoin (BTC)
+  - Ethereum (ETH)
+  - Solana (SOL)
+- Real-time price and 24h percentage change (color-coded: green for positive, red for negative)
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+#### 2. Trading Detail View
+- Asset information header with icon, ticker, price, and 24h change
+- Chart area placeholder (ready for TradingView integration)
+- Timeframe selectors: 1m, 5m, 15m, 1h, 4h
+- Stats grid displaying:
+  - Volume (24h)
+  - Market Cap
+  - Open Interest
 
-### `npm test`
+#### 3. Auth Modal
+- Sign In modal overlay
+- **Web2 Options:**
+  - Google Sign-In
+  - Apple Sign-In
+- **Web3 Options:**
+  - MetaMask
+  - Trust Wallet
+  - WalletConnect
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## Tech Stack
 
-### `npm run build`
+- **React 18** - UI framework with functional components and Hooks
+- **Tailwind CSS 3** - Utility-first CSS framework
+- **Lucide React** - Icon library
+- **Create React App** - Build tooling
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+## Getting Started
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+### Prerequisites
+- Node.js 14+ and npm
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### Installation
 
-### `npm run eject`
+1. Clone the repository:
+\`\`\`bash
+git clone https://github.com/tlord101/dydx.git
+cd dydx
+\`\`\`
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+2. Install dependencies:
+\`\`\`bash
+npm install
+\`\`\`
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+3. Start the development server:
+\`\`\`bash
+npm start
+\`\`\`
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+The app will open at [http://localhost:3000](http://localhost:3000)
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+### Available Scripts
 
-## Learn More
+- \`npm start\` - Runs the app in development mode
+- \`npm test\` - Launches the test runner
+- \`npm run build\` - Builds the app for production
+- \`npm run eject\` - Ejects from Create React App (one-way operation)
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## Project Structure
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+\`\`\`
+dydx/
+├── public/
+│   ├── index.html
+│   └── ...
+├── src/
+│   ├── components/
+│   │   ├── Dashboard.js       # Main dashboard view
+│   │   ├── TradingDetail.js   # Asset trading detail view
+│   │   └── AuthModal.js       # Authentication modal
+│   ├── App.js                 # Main app component with routing
+│   ├── App.test.js            # App tests
+│   ├── index.js               # Entry point
+│   └── index.css              # Global styles with Tailwind
+├── tailwind.config.js         # Tailwind configuration
+├── postcss.config.js          # PostCSS configuration
+└── package.json
+\`\`\`
 
-### Code Splitting
+## Component Overview
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+### Dashboard Component
+Displays the main portfolio view with market listings. Handles navigation to trading detail views and authentication modal.
 
-### Analyzing the Bundle Size
+### TradingDetail Component
+Shows detailed information for a selected cryptocurrency asset with chart placeholder and statistical data.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+### AuthModal Component
+Provides authentication options through Web2 social logins and Web3 wallet connections.
 
-### Making a Progressive Web App
+## Responsive Design
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+The application is fully responsive and optimized for:
+- 📱 Mobile devices (375px width)
+- 📱 Tablets (768px width)
+- 💻 Desktop screens
 
-### Advanced Configuration
+## Mock Data
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+The application uses mock data for demonstration purposes:
+- Cryptocurrency prices
+- 24h price changes
+- Volume, Market Cap, and Open Interest statistics
 
-### Deployment
+In a production environment, these would be replaced with real-time data from cryptocurrency APIs.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+## Future Enhancements
 
-### `npm run build` fails to minify
+- [ ] Integrate real cryptocurrency price APIs
+- [ ] Add TradingView chart integration
+- [ ] Implement actual Web2/Web3 authentication flows
+- [ ] Add trading functionality
+- [ ] Implement wallet connection logic
+- [ ] Add transaction history
+- [ ] Support for more cryptocurrencies
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+## License
+
+This project is open source and available under the MIT License.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
