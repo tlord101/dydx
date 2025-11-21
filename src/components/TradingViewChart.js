@@ -80,38 +80,42 @@ const TradingViewChart = ({ symbol = 'BTC' }) => {
 
     chartRef.current = chart;
 
-    // Create candlestick series
-    const candlestickSeries = chart.addSeries('Candlestick', {
-      upColor: '#00D395',
-      downColor: '#FF4D4D',
-      borderVisible: false,
-      wickUpColor: '#00D395',
-      wickDownColor: '#FF4D4D',
-    });
+    try {
+      // Create candlestick series
+      const candlestickSeries = chart.addCandlestickSeries({
+        upColor: '#00D395',
+        downColor: '#FF4D4D',
+        borderVisible: false,
+        wickUpColor: '#00D395',
+        wickDownColor: '#FF4D4D',
+      });
 
-    candlestickSeriesRef.current = candlestickSeries;
+      candlestickSeriesRef.current = candlestickSeries;
 
-    // Create volume series
-    const volumeSeries = chart.addSeries('Histogram', {
-      priceFormat: {
-        type: 'volume',
-      },
-      priceScaleId: '',
-      scaleMargins: {
-        top: 0.8,
-        bottom: 0,
-      },
-    });
+      // Create volume series
+      const volumeSeries = chart.addHistogramSeries({
+        priceFormat: {
+          type: 'volume',
+        },
+        priceScaleId: '',
+        scaleMargins: {
+          top: 0.8,
+          bottom: 0,
+        },
+      });
 
-    volumeSeriesRef.current = volumeSeries;
+      volumeSeriesRef.current = volumeSeries;
 
-    // Set data
-    const { data, volumeData } = generateMockData();
-    candlestickSeries.setData(data);
-    volumeSeries.setData(volumeData);
+      // Set data
+      const { data, volumeData } = generateMockData();
+      candlestickSeries.setData(data);
+      volumeSeries.setData(volumeData);
 
-    // Fit content
-    chart.timeScale().fitContent();
+      // Fit content
+      chart.timeScale().fitContent();
+    } catch (error) {
+      console.error('Error creating chart series:', error);
+    }
 
     // Handle resize
     const handleResize = () => {
