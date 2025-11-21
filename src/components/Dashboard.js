@@ -1,92 +1,177 @@
 import React from 'react';
-import { TrendingUp, TrendingDown } from 'lucide-react';
+import { Menu } from 'lucide-react';
 
 const Dashboard = ({ onAssetClick, onAuthClick }) => {
-  // Mock data for crypto assets
+  // Mock data for crypto assets matching the screenshot
   const markets = [
     {
       id: 'BTC',
-      name: 'Bitcoin',
+      name: 'BTC',
       ticker: 'BTC',
-      price: '67,234.50',
-      change: '+2.45',
-      changePercent: '+3.78%',
-      isPositive: true,
+      leverage: '50x',
+      price: '87,173',
+      marketCap: '$1.74T',
+      changePercent: '-5.43%',
+      isPositive: false,
+      color: '#F7931A',
+      icon: '₿'
     },
     {
       id: 'ETH',
-      name: 'Ethereum',
+      name: 'ETH',
       ticker: 'ETH',
-      price: '3,456.78',
-      change: '-45.23',
-      changePercent: '-1.29%',
+      leverage: '50x',
+      price: '2,862.9',
+      marketCap: '$344B',
+      changePercent: '-5.71%',
       isPositive: false,
+      color: '#627EEA',
+      icon: 'Ξ'
+    },
+    {
+      id: 'XRP',
+      name: 'XRP',
+      ticker: 'XRP',
+      leverage: '10x',
+      price: '2.0901',
+      marketCap: '$122B',
+      changePercent: '-4.05%',
+      isPositive: false,
+      color: '#23292F',
+      icon: 'X'
+    },
+    {
+      id: 'BNB',
+      name: 'BNB',
+      ticker: 'BNB',
+      leverage: '10x',
+      price: '869.8',
+      marketCap: '$120B',
+      changePercent: '',
+      isPositive: null,
+      color: '#F3BA2F',
+      icon: 'B'
     },
     {
       id: 'SOL',
-      name: 'Solana',
+      name: 'SOL',
       ticker: 'SOL',
-      price: '98.45',
-      change: '+5.67',
-      changePercent: '+6.11%',
-      isPositive: true,
+      leverage: '20x',
+      price: '134.16',
+      marketCap: '$75.2B',
+      changePercent: '-3.33%',
+      isPositive: false,
+      color: '#14F195',
+      icon: 'S'
+    },
+    {
+      id: 'TRX',
+      name: 'TRX',
+      ticker: 'TRX',
+      leverage: '10x',
+      price: '0.28089',
+      marketCap: '',
+      changePercent: '',
+      isPositive: null,
+      color: '#EB0029',
+      icon: 'T'
     },
   ];
+
+  const formatPrice = (price) => {
+    if (price.includes('.')) {
+      return `$${price}`;
+    }
+    return `$${price}`;
+  };
 
   return (
     <div className="min-h-screen bg-background text-white">
       {/* Header */}
-      <div className="p-6">
-        <div className="mb-8">
-          <h2 className="text-textGrey text-sm mb-2">Total Portfolio Value</h2>
-          <h1 className="text-4xl font-mono">$0.00</h1>
+      <div className="flex items-start justify-between p-4 mb-4">
+        <div>
+          <h1 className="text-3xl font-semibold mb-1">$0.00</h1>
+          <p className="text-sm" style={{ color: '#00D395' }}>0.00%</p>
         </div>
+        <button className="p-2 hover:bg-card rounded-lg transition-colors">
+          <Menu className="w-6 h-6" />
+        </button>
+      </div>
+
+      <div className="px-4">
+        <p className="text-textGrey text-sm text-center mb-4">You have no funds on dYdX.</p>
 
         {/* Get Started Button */}
         <button
           onClick={onAuthClick}
-          className="w-full bg-primary text-white py-4 rounded-xl font-semibold text-lg mb-8 hover:opacity-90 transition-opacity"
+          className="w-full bg-primary text-white py-3.5 rounded-lg font-medium text-base mb-6 hover:opacity-90 transition-opacity flex items-center justify-center gap-2"
         >
-          Get Started
+          Get started
+          <span>→</span>
         </button>
 
         {/* Markets Section */}
         <div>
-          <h3 className="text-xl font-semibold mb-4">Markets</h3>
-          <div className="space-y-3">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-lg font-semibold">Markets</h3>
+            <div className="flex items-center gap-2 text-sm text-textGrey">
+              <span>Market Cap</span>
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
+          </div>
+          <div className="space-y-0 divide-y divide-gray-800">
             {markets.map((asset) => (
               <div
                 key={asset.id}
                 onClick={() => onAssetClick(asset)}
-                className="bg-card p-4 rounded-xl cursor-pointer hover:bg-opacity-80 transition-all"
+                className="py-3 cursor-pointer hover:bg-card hover:bg-opacity-30 transition-all px-2 -mx-2 rounded"
               >
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-3">
-                    {/* Asset Icon Placeholder */}
-                    <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-sm font-bold">
-                      {asset.ticker.charAt(0)}
+                  <div className="flex items-center gap-3">
+                    {/* Asset Icon */}
+                    <div 
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-white font-bold text-lg"
+                      style={{ backgroundColor: asset.color }}
+                    >
+                      {asset.icon}
                     </div>
                     <div>
-                      <h4 className="font-semibold">{asset.name}</h4>
-                      <p className="text-textGrey text-sm">{asset.ticker}</p>
+                      <div className="flex items-center gap-2">
+                        <span className="font-semibold text-white">{asset.name}</span>
+                        <span className="text-xs px-1.5 py-0.5 bg-gray-700 rounded text-textGrey">{asset.leverage}</span>
+                      </div>
+                      <p className="text-textGrey text-xs mt-0.5">Market {asset.marketCap}</p>
                     </div>
                   </div>
                   <div className="text-right">
-                    <p className="font-mono font-semibold">${asset.price}</p>
-                    <div className={`flex items-center justify-end space-x-1 text-sm ${
-                      asset.isPositive ? 'text-green-500' : 'text-red-500'
-                    }`}>
-                      {asset.isPositive ? (
-                        <TrendingUp className="w-4 h-4" />
-                      ) : (
-                        <TrendingDown className="w-4 h-4" />
-                      )}
-                      <span className="font-mono">{asset.changePercent}</span>
-                    </div>
+                    <p className="font-medium text-white">{formatPrice(asset.price)}</p>
+                    {asset.changePercent && (
+                      <p className={`text-xs mt-0.5 ${
+                        asset.isPositive ? 'text-green-500' : 'text-red-500'
+                      }`}>
+                        {asset.changePercent}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>
             ))}
+          </div>
+        </div>
+
+        {/* Search Footer */}
+        <div className="mt-6 mb-4">
+          <div className="flex items-center gap-2 text-textGrey bg-card rounded-lg px-4 py-3">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <input 
+              type="text" 
+              placeholder="Search..." 
+              className="bg-transparent outline-none flex-1 text-white placeholder-textGrey"
+            />
           </div>
         </div>
       </div>
