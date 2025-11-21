@@ -1,11 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { createChart, ColorType } from 'lightweight-charts';
+import React, { useEffect, useRef } from 'react';
+import { createChart } from 'lightweight-charts';
 
 const TradingViewChart = ({ symbol = 'BTC' }) => {
   const chartContainerRef = useRef();
   const chartRef = useRef();
-  const candlestickSeriesRef = useRef();
-  const volumeSeriesRef = useRef();
 
   // Mock data generator
   const generateMockData = () => {
@@ -44,44 +42,43 @@ const TradingViewChart = ({ symbol = 'BTC' }) => {
   useEffect(() => {
     if (!chartContainerRef.current) return;
 
-    const chart = createChart(chartContainerRef.current, {
-      layout: {
-        background: { type: ColorType.Solid, color: '#101014' },
-        textColor: '#888888',
-      },
-      grid: {
-        vertLines: { color: '#1C1C28' },
-        horzLines: { color: '#1C1C28' },
-      },
-      width: chartContainerRef.current.clientWidth,
-      height: 280,
-      timeScale: {
-        timeVisible: true,
-        secondsVisible: false,
-        borderColor: '#1C1C28',
-      },
-      rightPriceScale: {
-        borderColor: '#1C1C28',
-      },
-      crosshair: {
-        mode: 1,
-        vertLine: {
-          width: 1,
-          color: '#6669FF',
-          style: 1,
-        },
-        horzLine: {
-          width: 1,
-          color: '#6669FF',
-          style: 1,
-        },
-      },
-    });
-
-    chartRef.current = chart;
-
     try {
-      // Create candlestick series
+      const chart = createChart(chartContainerRef.current, {
+        layout: {
+          background: { color: '#101014' },
+          textColor: '#888888',
+        },
+        grid: {
+          vertLines: { color: '#1C1C28' },
+          horzLines: { color: '#1C1C28' },
+        },
+        width: chartContainerRef.current.clientWidth,
+        height: 280,
+        timeScale: {
+          timeVisible: true,
+          secondsVisible: false,
+          borderColor: '#1C1C28',
+        },
+        rightPriceScale: {
+          borderColor: '#1C1C28',
+        },
+        crosshair: {
+          vertLine: {
+            width: 1,
+            color: '#6669FF',
+            style: 1,
+          },
+          horzLine: {
+            width: 1,
+            color: '#6669FF',
+            style: 1,
+          },
+        },
+      });
+
+      chartRef.current = chart;
+
+      // Create candlestick series with v5 API
       const candlestickSeries = chart.addCandlestickSeries({
         upColor: '#00D395',
         downColor: '#FF4D4D',
@@ -90,21 +87,21 @@ const TradingViewChart = ({ symbol = 'BTC' }) => {
         wickDownColor: '#FF4D4D',
       });
 
-      candlestickSeriesRef.current = candlestickSeries;
-
-      // Create volume series
+      // Create volume series with v5 API
       const volumeSeries = chart.addHistogramSeries({
+        color: '#26a69a',
         priceFormat: {
           type: 'volume',
         },
         priceScaleId: '',
+      });
+
+      volumeSeries.priceScale().applyOptions({
         scaleMargins: {
           top: 0.8,
           bottom: 0,
         },
       });
-
-      volumeSeriesRef.current = volumeSeries;
 
       // Set data
       const { data, volumeData } = generateMockData();
@@ -113,25 +110,26 @@ const TradingViewChart = ({ symbol = 'BTC' }) => {
 
       // Fit content
       chart.timeScale().fitContent();
+
+      // Handle resize
+      const handleResize = () => {
+        if (chartContainerRef.current) {
+          chart.applyOptions({
+            width: chartContainerRef.current.clientWidth,
+          });
+        }
+      };
+
+      window.addEventListener('resize', handleResize);
+
+      return () => {
+        window.removeEventListener('resize', handleResize);
+        chart.remove();
+      };
     } catch (error) {
-      console.error('Error creating chart series:', error);
+      console.error('Error creating chart:', error);
+      return () => {};
     }
-
-    // Handle resize
-    const handleResize = () => {
-      if (chartContainerRef.current) {
-        chart.applyOptions({
-          width: chartContainerRef.current.clientWidth,
-        });
-      }
-    };
-
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      chart.remove();
-    };
   }, []);
 
   return <div ref={chartContainerRef} className="w-full" />;
