@@ -4,7 +4,7 @@ import { mainnet, arbitrum } from '@reown/appkit/networks';
 import { QueryClient } from '@tanstack/react-query';
 
 // 1. Get projectId from https://cloud.reown.com
-export const projectId = process.env.REACT_APP_REOWN_PROJECT_ID || 'YOUR_PROJECT_ID';
+export const projectId = process.env.REACT_APP_REOWN_PROJECT_ID || 'f340171a355aad487eb6daa39b4b6c10';
 
 // 2. Create wagmiConfig
 const metadata = {
