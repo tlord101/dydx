@@ -42,8 +42,6 @@ const Dashboard: React.FC<DashboardProps> = ({ provider, address }) => {
   const getNetworkName = (chainId: number): string => {
     const networks: { [key: number]: string } = {
       1: 'Ethereum Mainnet',
-      3: 'Ropsten Testnet',
-      4: 'Rinkeby Testnet',
       5: 'Goerli Testnet',
       11155111: 'Sepolia Testnet',
       137: 'Polygon Mainnet',

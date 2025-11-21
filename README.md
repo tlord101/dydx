@@ -83,7 +83,7 @@ Builds the app for production to the `build` folder.
 ## Supported Networks
 
 - Ethereum Mainnet
-- Ethereum Testnets (Goerli, Sepolia, Ropsten, Rinkeby)
+- Ethereum Testnets (Goerli, Sepolia)
 - Polygon Mainnet & Mumbai Testnet
 - Binance Smart Chain Mainnet & Testnet
 - And other EVM-compatible networks

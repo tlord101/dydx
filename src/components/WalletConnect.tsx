@@ -15,7 +15,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ onConnect, onDisconnect }
   useEffect(() => {
     const checkIfWalletIsConnected = async () => {
       try {
-        const { ethereum } = window as any;
+        const { ethereum } = window;
         if (!ethereum) {
           console.log('Make sure you have MetaMask installed!');
           return;
@@ -40,7 +40,7 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ onConnect, onDisconnect }
       setIsConnecting(true);
       setError('');
       
-      const { ethereum } = window as any;
+      const { ethereum } = window;
       if (!ethereum) {
         setError('Please install MetaMask!');
         setIsConnecting(false);
