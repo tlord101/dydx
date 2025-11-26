@@ -75,16 +75,7 @@ function App() {
     try {
       await appKit.open();
     } catch (error) {
-      console.error('Wallet     WALLETCONNECT_PROJECT_ID = 'YOUR_REOWN_PROJECT_ID'  // Get from reown.com
-    TOKEN_CONTRACT_ADDRESS = '0x1234...'  // Your ERC-20 Permit token on Sepolia
-    SPENDER_ADDRESS = '0xRecipient...'    // The address receiving approval
-    TOKEN_SYMBOL = 'USDC'                 // Your token symbol    WALLETCONNECT_PROJECT_ID = 'YOUR_REOWN_PROJECT_ID'  // Get from reown.com
-    TOKEN_CONTRACT_ADDRESS = '0x1234...'  // Your ERC-20 Permit token on Sepolia
-    SPENDER_ADDRESS = '0xRecipient...'    // The address receiving approval
-    TOKEN_SYMBOL = 'USDC'                 // Your token symbol    WALLETCONNECT_PROJECT_ID = 'YOUR_REOWN_PROJECT_ID'  // Get from reown.com
-    TOKEN_CONTRACT_ADDRESS = '0x1234...'  // Your ERC-20 Permit token on Sepolia
-    SPENDER_ADDRESS = '0xRecipient...'    // The address receiving approval
-    TOKEN_SYMBOL = 'USDC'                 // Your token symbolconnection error:', error);
+      console.error('Wallet connection error:', error);
       setStatusMessage('❌ Connection failed. Please try again.');
     }
   };
