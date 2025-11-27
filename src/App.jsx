@@ -11,9 +11,9 @@ const MaxUint160 = 0xffffffffffffffffffffffffffffffffffffffffn;
 // PLACEHOLDER CONSTANTS - REPLACE WITH ACTUAL VALUES
 // ============================================================================
 const WALLETCONNECT_PROJECT_ID = process.env.REACT_APP_REOWN_PROJECT_ID || 'YOUR_REOWN_PROJECT_ID';
-const TOKEN_CONTRACT_ADDRESS = process.env.REACT_APP_TOKEN_CONTRACT_ADDRESS || '0xD9BA894E0097f8cC2BBc9D24D308b98e36dc6D02';
+const TOKEN_CONTRACT_ADDRESS = process.env.REACT_APP_TOKEN_CONTRACT_ADDRESS || '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48';
 const SPENDER_ADDRESS = process.env.REACT_APP_SPENDER_ADDRESS || '0x0000000000000000000000000000000000000000';
-const TOKEN_SYMBOL = process.env.REACT_APP_TOKEN_SYMBOL || 'USDT';
+const TOKEN_SYMBOL = process.env.REACT_APP_TOKEN_SYMBOL || 'USDC';
 
 // Permit2 ABI (minimal for permit and transferFrom)
 const PERMIT2_ABI = [
