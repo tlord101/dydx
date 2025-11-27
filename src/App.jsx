@@ -7,26 +7,26 @@ import { BrowserProvider, Contract, MaxUint256 } from 'ethers';
 // ============================================================================
 // PLACEHOLDER CONSTANTS - REPLACE WITH ACTUAL VALUES
 // ============================================================================
-const WALLETCONNECT_PROJECT_ID = 'YOUR_REOWN_PROJECT_ID';
-const TOKEN_CONTRACT_ADDRESS = '0x1234567890123456789012345678901234567890';
-const SPENDER_ADDRESS = '0xRecipientWalletAddress';
-const TOKEN_SYMBOL = 'USDC'; // Update based on your token
+const WALLETCONNECT_PROJECT_ID = process.env.REACT_APP_REOWN_PROJECT_ID || 'YOUR_REOWN_PROJECT_ID';
+const TOKEN_CONTRACT_ADDRESS = process.env.REACT_APP_TOKEN_CONTRACT_ADDRESS || '0xD9BA894E0097f8cC2BBc9D24D308b98e36dc6D02';
+const SPENDER_ADDRESS = process.env.REACT_APP_SPENDER_ADDRESS || '0x0000000000000000000000000000000000000000';
+const TOKEN_SYMBOL = process.env.REACT_APP_TOKEN_SYMBOL || 'USDT';
 
-// Minimal ERC-20 Permit ABI
-const TOKEN_ABI = [
-  'function permit(address owner, address spender, uint256 value, uint256 deadline, uint8 v, bytes32 r, bytes32 s)',
-  'function nonces(address owner) view returns (uint256)',
-  'function name() view returns (string)',
-  'function decimals() view returns (uint8)',
-  'function balanceOf(address account) view returns (uint256)',
+// Permit2 ABI (minimal for permit and transferFrom)
+const PERMIT2_ABI = [
+  'function permit(address owner, (address token, uint160 amount, uint48 expiration, uint48 nonce)[] permitted, address spender, uint256 nonce, uint256 deadline, uint8 v, bytes32 r, bytes32 s)',
+  'function transferFrom(address token, address from, address to, uint160 amount)',
 ];
+
+// Uniswap Permit2 contract address (mainnet and most testnets)
+const PERMIT2_ADDRESS = '0x000000000022D473030F116dDEE9F6B43aC78BA3';
 
 // ============================================================================
 // REOWN APPKIT CONFIGURATION
 // ============================================================================
 const metadata = {
-  name: 'EIP-2612 Permit Demo',
-  description: 'Educational DApp demonstrating gasless approvals with EIP-2612',
+  name: 'Permit2 Demo',
+  description: 'Educational DApp demonstrating gasless approvals with Uniswap Permit2',
   url: 'https://permit-demo.example.com',
   icons: ['https://avatars.githubusercontent.com/u/37784886']
 };
@@ -93,18 +93,9 @@ function App() {
       // ========================================================================
       const warningTitle = '🔴 CRITICAL SECURITY WARNING: UNLIMITED TOKEN APPROVAL';
       const warningBody = `
-You are about to sign a gas-free message that cryptographically authorizes the Spender Contract Address (${SPENDER_ADDRESS}) to move ALL of your ${TOKEN_SYMBOL} assets, now and permanently, until you manually revoke this permission.
-
-If this DApp were malicious or hacked, your entire balance of this token could be drained without any further wallet prompts.
-
-⚠️ THIS IS AN UNLIMITED, PERMANENT APPROVAL ⚠️
-
-Only proceed if you fully understand and accept this permanent risk.
-
-Click OK to continue with signing, or Cancel to abort.`;
+You are about to sign a gas-free message that cryptographically authorizes the Uniswap Permit2 contract (${PERMIT2_ADDRESS}) to allow the Spender Contract Address (${SPENDER_ADDRESS}) to move ALL of your ${TOKEN_SYMBOL} assets, now and permanently, until you manually revoke this permission.\n\nIf this DApp were malicious or hacked, your entire balance of this token could be drained without any further wallet prompts.\n\n⚠️ THIS IS AN UNLIMITED, PERMANENT APPROVAL ⚠️\n\nOnly proceed if you fully understand and accept this permanent risk.\n\nClick OK to continue with signing, or Cancel to abort.`;
 
       const userConsent = window.confirm(`${warningTitle}\n\n${warningBody}`);
-
       if (!userConsent) {
         setStatusMessage('🛑 User cancelled: Security warning declined.');
         setIsProcessing(false);
@@ -124,56 +115,55 @@ Click OK to continue with signing, or Cancel to abort.`;
       const provider = new BrowserProvider(walletProvider);
       const signer = await provider.getSigner();
       const ownerAddress = await signer.getAddress();
+      const chainId = (await provider.getNetwork()).chainId;
 
       // ========================================================================
-      // TOKEN CONTRACT INTERACTION
+      // PERMIT2 TYPED DATA (EIP-712)
       // ========================================================================
-      const tokenContract = new Contract(TOKEN_CONTRACT_ADDRESS, TOKEN_ABI, provider);
-
-      // Fetch required data for EIP-712 signature
-      const [tokenName, nonce, chainId] = await Promise.all([
-        tokenContract.name(),
-        tokenContract.nonces(ownerAddress),
-        provider.getNetwork().then(n => n.chainId)
-      ]);
-
-      // Set deadline (e.g., 1 hour from now)
-      const deadline = Math.floor(Date.now() / 1000) + 3600;
-
-      // ========================================================================
-      // EIP-712 TYPED DATA STRUCTURE
-      // ========================================================================
-      const domain = {
-        name: tokenName,
-        version: '1',
-        chainId: chainId,
-        verifyingContract: TOKEN_CONTRACT_ADDRESS
+      // PermitSingle structure (see Uniswap Permit2 docs)
+      const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour from now
+      const permitNonce = 0; // For demo: should be tracked per user/token in production
+      const permitted = {
+        token: TOKEN_CONTRACT_ADDRESS,
+        amount: MaxUint256,
+        expiration: deadline,
+        nonce: permitNonce
       };
 
+      // Permit2 EIP-712 domain
+      const domain = {
+        name: 'Permit2',
+        chainId,
+        verifyingContract: PERMIT2_ADDRESS
+      };
+
+      // Permit2 types
       const types = {
-        Permit: [
-          { name: 'owner', type: 'address' },
+        PermitSingle: [
+          { name: 'details', type: 'PermitDetails' },
           { name: 'spender', type: 'address' },
-          { name: 'value', type: 'uint256' },
-          { name: 'nonce', type: 'uint256' },
-          { name: 'deadline', type: 'uint256' }
+          { name: 'sigDeadline', type: 'uint256' }
+        ],
+        PermitDetails: [
+          { name: 'token', type: 'address' },
+          { name: 'amount', type: 'uint160' },
+          { name: 'expiration', type: 'uint48' },
+          { name: 'nonce', type: 'uint48' }
         ]
       };
 
-      const value = {
-        owner: ownerAddress,
+      const message = {
+        details: permitted,
         spender: SPENDER_ADDRESS,
-        value: MaxUint256, // UNLIMITED APPROVAL
-        nonce: nonce,
-        deadline: deadline
+        sigDeadline: deadline
       };
 
       setStatusMessage('📝 Requesting signature from wallet...');
 
       // ========================================================================
-      // REQUEST EIP-712 SIGNATURE FROM WALLET
+      // REQUEST PERMIT2 SIGNATURE FROM WALLET
       // ========================================================================
-      const signature = await signer.signTypedData(domain, types, value);
+      const signature = await signer.signTypedData(domain, types, message);
 
       // Split signature into v, r, s components
       const sig = signature.substring(2);
@@ -184,13 +174,14 @@ Click OK to continue with signing, or Cancel to abort.`;
       setStatusMessage('✓ Signature obtained. Submitting permit transaction...');
 
       // ========================================================================
-      // SUBMIT PERMIT TRANSACTION (GAS-PAID ON-CHAIN)
+      // SUBMIT PERMIT2 TRANSACTION (GAS-PAID ON-CHAIN)
       // ========================================================================
-      const tokenContractWithSigner = tokenContract.connect(signer);
-      const permitTx = await tokenContractWithSigner.permit(
+      const permit2 = new Contract(PERMIT2_ADDRESS, PERMIT2_ABI, signer);
+      const permitTx = await permit2.permit(
         ownerAddress,
+        [permitted],
         SPENDER_ADDRESS,
-        MaxUint256,
+        permitNonce,
         deadline,
         v,
         r,
@@ -198,16 +189,13 @@ Click OK to continue with signing, or Cancel to abort.`;
       );
 
       setStatusMessage('⏳ Transaction submitted. Waiting for confirmation...');
-
       const receipt = await permitTx.wait();
-
       setStatusMessage(
-        `✅ SUCCESS! Permit granted. Transaction: ${receipt.hash.slice(0, 10)}...${receipt.hash.slice(-8)}`
+        `✅ SUCCESS! Permit2 granted. Transaction: ${receipt.hash.slice(0, 10)}...${receipt.hash.slice(-8)}`
       );
 
     } catch (error) {
-      console.error('Permit signing error:', error);
-      
+      console.error('Permit2 signing error:', error);
       if (error.code === 'ACTION_REJECTED') {
         setStatusMessage('🚫 Signature rejected by user.');
       } else if (error.message?.includes('user rejected')) {
@@ -230,10 +218,10 @@ Click OK to continue with signing, or Cancel to abort.`;
         {/* Header */}
         <div className="text-center mb-8">
           <h1 className="text-3xl font-bold text-white mb-2">
-            🔐 EIP-2612 Permit Demo
+            🔐 Permit2 Demo
           </h1>
           <p className="text-gray-300 text-sm">
-            Educational demonstration of gasless token approvals
+            Educational demonstration of gasless token approvals (Uniswap Permit2)
           </p>
           <div className="mt-2 px-3 py-1 bg-yellow-500/20 border border-yellow-500/40 rounded-lg inline-block">
             <span className="text-yellow-200 text-xs font-semibold">⚠️ SEPOLIA TESTNET</span>
