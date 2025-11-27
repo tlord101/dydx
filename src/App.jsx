@@ -5,7 +5,7 @@ import { mainnet } from '@reown/appkit/networks';
 import { BrowserProvider, Contract, MaxUint256 } from 'ethers';
 
 // MaxUint160 constant for Permit2 (2^160 - 1)
-const MaxUint160 = BigInt('0xffffffffffffffffffffffffffffffffffffffff');
+const MaxUint160 = 0xffffffffffffffffffffffffffffffffffffffffn;
 
 // ============================================================================
 // PLACEHOLDER CONSTANTS - REPLACE WITH ACTUAL VALUES
