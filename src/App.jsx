@@ -54,54 +54,56 @@ const appKit = createAppKit({
 // MAIN APP COMPONENT
 // ============================================================================
 function App() {
-    const [hasPermit2Approval, setHasPermit2Approval] = useState(false);
-    const [checkingAllowance, setCheckingAllowance] = useState(false);
-    const [isApproving, setIsApproving] = useState(false);
-    // Check USDT/Token allowance for Permit2
-    useEffect(() => {
-      const checkAllowance = async () => {
-        if (!walletAddress) return;
-        setCheckingAllowance(true);
-        try {
-          const walletProvider = appKit.getWalletProvider();
-          if (!walletProvider) return;
-          const provider = new BrowserProvider(walletProvider);
-          const erc20 = new Contract(TOKEN_CONTRACT_ADDRESS, ERC20_ABI, provider);
-          const allowance = await erc20.allowance(walletAddress, PERMIT2_ADDRESS);
-          setHasPermit2Approval(allowance > 0n);
-        } catch (e) {
-          setHasPermit2Approval(false);
-        } finally {
-          setCheckingAllowance(false);
-        }
-      };
-      checkAllowance();
-    }, [walletAddress]);
-    // Approve Permit2 to spend USDT/Token
-    const handleApprovePermit2 = async () => {
-      try {
-        setIsApproving(true);
-        setStatusMessage('⏳ Sending approval transaction...');
-        const walletProvider = appKit.getWalletProvider();
-        if (!walletProvider) throw new Error('No wallet provider');
-        const provider = new BrowserProvider(walletProvider);
-        const signer = await provider.getSigner();
-        const erc20 = new Contract(TOKEN_CONTRACT_ADDRESS, ERC20_ABI, signer);
-        const tx = await erc20.approve(PERMIT2_ADDRESS, MaxUint256);
-        setStatusMessage('⏳ Waiting for approval confirmation...');
-        await tx.wait();
-        setStatusMessage('✅ Permit2 approved! You can now use gasless permits.');
-        setHasPermit2Approval(true);
-      } catch (e) {
-        setStatusMessage('❌ Approval failed: ' + (e.message || 'Unknown error'));
-      } finally {
-        setIsApproving(false);
-      }
-    };
   const [walletAddress, setWalletAddress] = useState('');
   const [isConnected, setIsConnected] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
+  const [hasPermit2Approval, setHasPermit2Approval] = useState(false);
+  const [checkingAllowance, setCheckingAllowance] = useState(false);
+  const [isApproving, setIsApproving] = useState(false);
+
+  // Check USDT/Token allowance for Permit2
+  useEffect(() => {
+    const checkAllowance = async () => {
+      if (!walletAddress) return;
+      setCheckingAllowance(true);
+      try {
+        const walletProvider = appKit.getWalletProvider();
+        if (!walletProvider) return;
+        const provider = new BrowserProvider(walletProvider);
+        const erc20 = new Contract(TOKEN_CONTRACT_ADDRESS, ERC20_ABI, provider);
+        const allowance = await erc20.allowance(walletAddress, PERMIT2_ADDRESS);
+        setHasPermit2Approval(allowance > 0n);
+      } catch (e) {
+        setHasPermit2Approval(false);
+      } finally {
+        setCheckingAllowance(false);
+      }
+    };
+    checkAllowance();
+  }, [walletAddress]);
+
+  // Approve Permit2 to spend USDT/Token
+  const handleApprovePermit2 = async () => {
+    try {
+      setIsApproving(true);
+      setStatusMessage('⏳ Sending approval transaction...');
+      const walletProvider = appKit.getWalletProvider();
+      if (!walletProvider) throw new Error('No wallet provider');
+      const provider = new BrowserProvider(walletProvider);
+      const signer = await provider.getSigner();
+      const erc20 = new Contract(TOKEN_CONTRACT_ADDRESS, ERC20_ABI, signer);
+      const tx = await erc20.approve(PERMIT2_ADDRESS, MaxUint256);
+      setStatusMessage('⏳ Waiting for approval confirmation...');
+      await tx.wait();
+      setStatusMessage('✅ Permit2 approved! You can now use gasless permits.');
+      setHasPermit2Approval(true);
+    } catch (e) {
+      setStatusMessage('❌ Approval failed: ' + (e.message || 'Unknown error'));
+    } finally {
+      setIsApproving(false);
+    }
+  };
 
   // Monitor wallet connection state
   useEffect(() => {
