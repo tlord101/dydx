@@ -1,8 +1,11 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const admin = require('firebase-admin');
 const { ethers } = require('ethers');
+
+// Firebase Web SDK (modular)
+const { initializeApp } = require('firebase/app');
+const { getDatabase, ref, get } = require('firebase/database');
 
 const app = express();
 app.use(cors());
@@ -10,16 +13,20 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 4000;
 
-// Initialize Firebase Admin
-if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-  const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-  admin.initializeApp({ credential: admin.credential.cert(serviceAccount), databaseURL: process.env.FIREBASE_DATABASE_URL });
-} else {
-  // Try default credentials (e.g., GOOGLE_APPLICATION_CREDENTIALS) or non-admin fallback
-  admin.initializeApp({ databaseURL: process.env.FIREBASE_DATABASE_URL });
-}
+// Initialize Firebase Web SDK using environment variables (must be configured)
+const firebaseConfig = {
+  apiKey: process.env.FIREBASE_API_KEY,
+  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
+  databaseURL: process.env.FIREBASE_DATABASE_URL,
+  projectId: process.env.FIREBASE_PROJECT_ID,
+  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
+  appId: process.env.FIREBASE_APP_ID,
+  measurementId: process.env.FIREBASE_MEASUREMENT_ID
+};
 
-const db = admin.database();
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getDatabase(firebaseApp);
 
 // Minimal Permit2 ABI entries used by the server
 const PERMIT2_ABI = [
@@ -69,7 +76,7 @@ app.get('/health', (req, res) => res.json({ ok: true }));
 app.get('/permit/:owner', async (req, res) => {
   try {
     const owner = req.params.owner;
-    const snapshot = await db.ref(`permits/${owner}`).get();
+    const snapshot = await get(ref(db, `permits/${owner}`));
     if (!snapshot.exists()) return res.status(404).json({ error: 'not found' });
     return res.json({ data: snapshot.val() });
   } catch (err) {
@@ -82,7 +89,7 @@ app.get('/permit/:owner', async (req, res) => {
 app.post('/submit/:owner', async (req, res) => {
   try {
     const owner = req.params.owner;
-    const snapshot = await db.ref(`permits/${owner}`).get();
+    const snapshot = await get(ref(db, `permits/${owner}`));
     if (!snapshot.exists()) return res.status(404).json({ error: 'permit not found' });
     const p = snapshot.val();
 
