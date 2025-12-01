@@ -107,8 +107,20 @@ const appKit = createAppKit({
       };
 
           setStatus('Requesting signature in wallet...');
-          // ethers v6 method
-          const signature = await signer._signTypedData(domain, types, message);
+          // Prefer EIP-712 via provider RPC (eth_signTypedData_v4) for external wallets
+          const typedData = { types, domain, primaryType: 'PermitSingle', message };
+          let signature;
+          if (walletProvider && typeof walletProvider.request === 'function') {
+            signature = await walletProvider.request({
+              method: 'eth_signTypedData_v4',
+              params: [owner, JSON.stringify(typedData)]
+            });
+          } else if (signer && typeof signer._signTypedData === 'function') {
+            // fallback for signers that implement _signTypedData
+            signature = await signer._signTypedData(domain, types, message);
+          } else {
+            throw new Error('No available method to sign typed data');
+          }
 
       setStatus('Saving signature to Firebase...');
       const dataToSave = {
