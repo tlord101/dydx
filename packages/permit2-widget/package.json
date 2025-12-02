@@ -1,0 +1,19 @@
+{
+  "name": "@tlord101/permit2-widget",
+  "version": "0.1.0",
+  "description": "Lightweight widget SDK to open a Permit2 signing popup and return saved permit signatures.",
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.esm.js",
+  "types": "dist/index.d.ts",
+  "files": ["dist/*"],
+  "scripts": {
+    "build": "node ./scripts/build.js",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": ["permit2","uniswap","wallet","widget","embed"],
+  "author": "tlord101",
+  "license": "MIT",
+  "devDependencies": {
+    "esbuild": "^0.18.0"
+  }
+}

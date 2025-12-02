@@ -1,0 +1,30 @@
+name: Publish permit2-widget
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install root dependencies
+        run: npm ci
+      - name: Build package
+        run: |
+          cd packages/permit2-widget
+          npm ci
+          npm run build
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd packages/permit2-widget
+          npm publish --access public
