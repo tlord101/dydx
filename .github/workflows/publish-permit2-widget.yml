@@ -20,7 +20,7 @@ jobs:
       - name: Build package
         run: |
           cd packages/permit2-widget
-          npm ci
+          npm install
           npm run build
       - name: Publish to npm
         env:
