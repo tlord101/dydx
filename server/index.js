@@ -105,7 +105,16 @@ app.all('/api/run-worker', async (req, res) => {
     return res.status(500).json({ ok: false, error: String(err) });
   }
 
+  const debug = req.query?.debug === '1' || req.query?.dryRun === '1' || req.body?.debug || req.body?.dryRun;
+
   try {
+    if (debug) {
+      // Return diagnostic information without processing
+      const snaps = await db.collection('permit2_signatures').where('processed','==',false).limit(20).get();
+      const docs = snaps.docs.map(d => ({ id: d.id, data: d.data() }));
+      return res.json({ ok: true, processed: 0, unprocessedCount: snaps.size, sample: docs });
+    }
+
     const result = await processPending(10);
     return res.json({ ok: true, ...result });
   } catch (err) {

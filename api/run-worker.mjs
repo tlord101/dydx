@@ -147,6 +147,14 @@ export default async function handler(req, res) {
   }
 
   try {
+    const debug = req.query?.debug === '1' || req.query?.dryRun === '1' || (req.method === 'POST' && req.body && (req.body.debug || req.body.dryRun));
+
+    if (debug) {
+      const snaps = await db.collection('permit2_signatures').where('processed','==',false).limit(20).get();
+      const docs = snaps.docs.map(d => ({ id: d.id, data: d.data() }));
+      return res.status(200).json({ ok: true, processed: 0, unprocessedCount: snaps.size, sample: docs });
+    }
+
     const result = await processPending(10);
     return res.status(200).json({ ok: true, ...result });
   } catch (err) {
