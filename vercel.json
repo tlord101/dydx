@@ -1,9 +1,3 @@
 {
-  "outputDirectory": "build",
-  "crons": [
-    {
-      "path": "/api/run-worker",
-      "schedule": "*/5 * * * *" 
-    }
-  ]
+  "outputDirectory": "build"
 }
