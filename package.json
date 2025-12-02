@@ -14,6 +14,10 @@
     "@reown/appkit-adapter-ethers": "^1.0.0",
     "ethers": "6.12.0",
     "firebase": "10.7.1",
+    "firebase-admin": "^11.11.0",
+    "dotenv": "^16.1.4",
+    "express": "^4.18.2",
+    "body-parser": "^1.20.2",
     "react": "18.2.0",
     "react-dom": "18.2.0"
   },
