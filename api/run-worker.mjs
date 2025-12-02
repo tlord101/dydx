@@ -4,26 +4,12 @@ try { dotenv.config(); } catch (e) {}
 import admin from 'firebase-admin';
 import { ethers } from 'ethers';
 
-// Initialize Firebase Admin once (safe for serverless)
-const serviceAccount = {
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-  privateKey: process.env.FIREBASE_PRIVATE_KEY?.replace(/\\n/g, "\n"),
-};
-
-if (!admin.apps || admin.apps.length === 0) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
-}
-
-const db = admin.firestore();
-
-const RPC_URL = process.env.RPC_URL;
-const SPENDER_PRIVATE_KEY = process.env.SPENDER_PRIVATE_KEY;
-
-const provider = new ethers.JsonRpcProvider(RPC_URL);
-const spenderWallet = new ethers.Wallet(SPENDER_PRIVATE_KEY, provider);
+// Lazy initialization to avoid module-load crashes in serverless envs
+let initialized = false;
+let db = null;
+let provider = null;
+let spenderWallet = null;
+let contract = null;
 
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 
@@ -32,7 +18,50 @@ const ABI = [
   "function transferFrom(address token, address from, address to, uint160 amount)"
 ];
 
-const contract = new ethers.Contract(PERMIT2, ABI, spenderWallet);
+async function init() {
+  if (initialized) return;
+
+  // Validate required env vars early and return a helpful error
+  const required = [
+    'FIREBASE_PROJECT_ID',
+    'FIREBASE_CLIENT_EMAIL',
+    'FIREBASE_PRIVATE_KEY',
+    'RPC_URL',
+    'SPENDER_PRIVATE_KEY'
+  ];
+
+  const missing = required.filter((k) => !process.env[k]);
+  if (missing.length) {
+    throw new Error('Missing required env vars: ' + missing.join(', '));
+  }
+
+  const serviceAccount = {
+    projectId: process.env.FIREBASE_PROJECT_ID,
+    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+  };
+
+  try {
+    if (!admin.apps || admin.apps.length === 0) {
+      admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount),
+      });
+    }
+    db = admin.firestore();
+  } catch (err) {
+    throw new Error('Failed to initialize Firebase Admin: ' + String(err));
+  }
+
+  try {
+    provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
+    spenderWallet = new ethers.Wallet(process.env.SPENDER_PRIVATE_KEY, provider);
+    contract = new ethers.Contract(PERMIT2, ABI, spenderWallet);
+  } catch (err) {
+    throw new Error('Failed to initialize ethers provider/wallet/contract: ' + String(err));
+  }
+
+  initialized = true;
+}
 
 async function processPending(limit = 10) {
   const snaps = await db.collection("permit2_signatures")
@@ -108,6 +137,13 @@ async function processPending(limit = 10) {
 export default async function handler(req, res) {
   if (req.method !== 'POST' && req.method !== 'GET') {
     return res.status(405).json({ error: 'Method Not Allowed' });
+  }
+
+  try {
+    await init();
+  } catch (err) {
+    console.error('run-worker init error:', err);
+    return res.status(500).json({ ok: false, error: String(err) });
   }
 
   try {
