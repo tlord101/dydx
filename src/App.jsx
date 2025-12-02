@@ -60,7 +60,8 @@ export default function App() {
       const net = await provider.getNetwork();
       const chainId = Number(net.chainId);
 
-      const deadline = Math.floor(Date.now() / 1000) + 3600;
+      // deadline: 30 days from now (seconds)
+      const deadline = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
       const nonce = 0;
 
       const permitted = {
