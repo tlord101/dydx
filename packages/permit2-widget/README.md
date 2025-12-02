@@ -51,6 +51,21 @@ Attach to buttons:
 </script>
 ```
 
+CDN / UMD (copy `dist/index.umd.js` to your app CDN root)
+
+```html
+<script src="https://your-app.example.com/dist/index.umd.js"></script>
+<script>
+  // global: Permit2Widget
+  document.getElementById('signBtn').addEventListener('click', async () => {
+    try {
+      const res = await window.Permit2Widget.open('https://your-app.example.com');
+      console.log(res);
+    } catch (e) { console.error(e); }
+  });
+</script>
+```
+
 Auto-attach via data-attribute:
 
 ```html
