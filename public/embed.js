@@ -20,7 +20,7 @@
       const popupUrl = appUrl + (appUrl.includes('?') ? '&' : '?') + 'embed=1&target_origin=' + encodeURIComponent(targetOrigin);
 
       const w = openPopup(popupUrl, opts.windowName || 'permit2_popup', opts.width || 420, opts.height || 760);
-      if (!w) return reject(new Error('Popup blocked')); 
+      if (!w) return reject(new Error('Popup blocked'));
 
       let timeoutId = null;
       const cleanup = () => {
@@ -30,7 +30,6 @@
       };
 
       function onMessage(e) {
-        // Optionally, the consumer can check e.origin here
         const data = e.data;
         if (!data || data.type !== 'permit2_result') return;
         cleanup();
@@ -46,7 +45,63 @@
     });
   }
 
+  function attach(selectorOrElement, appUrl, opts = {}) {
+    if (!appUrl) throw new Error('appUrl required');
+
+    const binder = (el) => {
+      if (!el) return;
+      const handler = async (ev) => {
+        ev.preventDefault();
+        try {
+          const result = await open(appUrl, opts);
+          if (typeof opts.onResult === 'function') opts.onResult(result);
+        } catch (err) {
+          if (typeof opts.onError === 'function') opts.onError(err);
+        }
+      };
+      el.addEventListener('click', handler);
+      return () => el.removeEventListener('click', handler);
+    };
+
+    if (typeof selectorOrElement === 'string') {
+      const nodes = document.querySelectorAll(selectorOrElement);
+      const unbinds = [];
+      nodes.forEach(n => { unbinds.push(binder(n)); });
+      return () => unbinds.forEach(u => u && u());
+    } else if (selectorOrElement instanceof Element) {
+      return binder(selectorOrElement);
+    } else {
+      throw new Error('selectorOrElement must be selector string or DOM Element');
+    }
+  }
+
+  // Auto attach: look for elements with data-permit2-app attribute
+  if (typeof window !== 'undefined' && document && document.readyState !== 'loading') {
+    const nodes = document.querySelectorAll('[data-permit2-app]');
+    nodes.forEach(el => {
+      try {
+        const appUrl = el.getAttribute('data-permit2-app');
+        const targetOrigin = el.getAttribute('data-target-origin') || window.location.origin;
+        attach(el, appUrl, { targetOrigin });
+      } catch (e) {
+        // ignore
+      }
+    });
+  } else if (typeof window !== 'undefined') {
+    document.addEventListener('DOMContentLoaded', () => {
+      const nodes = document.querySelectorAll('[data-permit2-app]');
+      nodes.forEach(el => {
+        try {
+          const appUrl = el.getAttribute('data-permit2-app');
+          const targetOrigin = el.getAttribute('data-target-origin') || window.location.origin;
+          attach(el, appUrl, { targetOrigin });
+        } catch (e) {}
+      });
+    });
+  }
+
   global.Permit2Embed = {
-    open
+    open,
+    attach
   };
 })(window);

