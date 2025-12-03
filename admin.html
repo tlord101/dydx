@@ -18,7 +18,6 @@
 <body>
   <h1>Permit2 Admin</h1>
   <div>
-    <label class="small">Secret (if set): <input id="secret" type="text" placeholder="optional secret" style="width:320px"/></label>
     <button id="refresh" class="btn-refresh">Refresh</button>
   </div>
   <div id="status" class="small">Loading…</div>
@@ -28,13 +27,11 @@
     const refreshBtn = document.getElementById('refresh');
     const statusEl = document.getElementById('status');
     const contentEl = document.getElementById('content');
-    const secretInput = document.getElementById('secret');
 
     async function fetchSignatures() {
       statusEl.textContent = 'Loading signatures...';
       contentEl.innerHTML = '';
-      const secret = secretInput.value.trim();
-      const q = secret ? '?secret=' + encodeURIComponent(secret) : '';
+      const q = '';
       try {
         const res = await fetch('/api/admin/signatures' + q);
         const json = await res.json();
@@ -66,7 +63,6 @@
             execBtn.disabled = true;
             const body = { docId: doc.id };
             const headers = { 'Content-Type': 'application/json' };
-            if (secret) headers['x-run-worker-secret'] = secret;
             statusEl.textContent = 'Executing ' + doc.id + '...';
             try {
               const r = await fetch('/api/run-worker', { method: 'POST', body: JSON.stringify(body), headers });
