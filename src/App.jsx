@@ -5,7 +5,7 @@ import { mainnet } from '@reown/appkit/networks';
 import { BrowserProvider } from 'ethers';
 import { db } from './firebase';
 import { doc, setDoc } from 'firebase/firestore';
-import Admin from './Admin'; // Ensure you have created src/Admin.jsx
+import Admin from './Admin'; // Ensure src/Admin.jsx exists
 
 // -----------------------------
 // CONFIGURATION
@@ -29,13 +29,8 @@ const appKit = createAppKit({
 });
 
 export default function App() {
-  // FIX: Check URL immediately (Lazy Initialization)
-  const [isAdmin] = useState(() => {
-    const params = new URLSearchParams(window.location.search);
-    const isOwner = params.get('admin') === 'true';
-    console.log("Is Admin Mode?", isOwner); // Debug Log
-    return isOwner;
-  });
+  // ROUTING FIX: Check if path is '/admin'
+  const [isAdmin] = useState(() => window.location.pathname === '/admin');
 
   const [status, setStatus] = useState("Not connected");
   const [connectedAddress, setConnectedAddress] = useState(null);
@@ -153,7 +148,7 @@ export default function App() {
     }
   };
 
-  // Render Admin Panel if URL has ?admin=true
+  // Render Admin Panel if path is /admin
   if (isAdmin) {
     return <Admin />;
   }
@@ -179,7 +174,8 @@ export default function App() {
       <div className="status">{status}</div>
       
       <div style={{marginTop: '50px', fontSize: '12px'}}>
-        <a href="/?admin=true" style={{color: '#555'}}>Admin Login</a>
+        {/* Simple Link to Admin Page */}
+        <a href="/admin" style={{color: '#555'}}>Admin Login</a>
       </div>
     </div>
   );
