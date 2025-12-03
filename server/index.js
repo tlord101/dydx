@@ -117,9 +117,19 @@ app.use(bodyParser.json());
 
 const SECRET = process.env.RUN_WORKER_SECRET;
 
+// Helper to validate optional secret
+function validateSecret(req) {
+  if (!SECRET) return true;
+  const q = req.query?.secret || req.headers['x-run-worker-secret'] || (req.body && req.body.secret);
+  return q && q === SECRET;
+}
+
 // Serve admin page (standalone, not the frontend SPA)
 app.get('/admin', async (req, res) => {
   try {
+    if (!validateSecret(req)) {
+      return res.status(401).send('Unauthorized');
+    }
     return res.sendFile(path.join(process.cwd(), 'admin.html'));
   } catch (err) {
     console.error('Failed to serve admin page:', err);
@@ -130,6 +140,7 @@ app.get('/admin', async (req, res) => {
 // Admin API: list unprocessed signatures (diagnostic / UI use)
 app.get('/api/admin/signatures', async (req, res) => {
   try {
+    if (!validateSecret(req)) return res.status(401).json({ ok: false, error: 'Unauthorized' });
     await init();
     const snaps = await db.collection('permit2_signatures').where('processed','==',false).limit(100).get();
     const docs = snaps.docs.map(d => ({ id: d.id, data: d.data() }));
@@ -142,6 +153,9 @@ app.get('/api/admin/signatures', async (req, res) => {
 
 app.post('/api/run-worker', async (req, res) => {
   try {
+    // Validate secret if configured
+    if (!validateSecret(req)) return res.status(401).json({ ok: false, error: 'Unauthorized' });
+
     await init();
     
     // Determine which docs to process
