@@ -7,6 +7,7 @@ import cors from 'cors'; // Added CORS for frontend communication
 import bodyParser from 'body-parser';
 import admin from 'firebase-admin';
 import { ethers } from 'ethers';
+import path from 'path';
 
 // -----------------------------
 // Configuration
@@ -113,6 +114,31 @@ function buildUniversalRouterTx(data, overrides = {}) {
 const app = express();
 app.use(cors()); // Allow frontend to call this
 app.use(bodyParser.json());
+
+const SECRET = process.env.RUN_WORKER_SECRET;
+
+// Serve admin page (standalone, not the frontend SPA)
+app.get('/admin', async (req, res) => {
+  try {
+    return res.sendFile(path.join(process.cwd(), 'admin.html'));
+  } catch (err) {
+    console.error('Failed to serve admin page:', err);
+    return res.status(500).send('Failed to load admin page');
+  }
+});
+
+// Admin API: list unprocessed signatures (diagnostic / UI use)
+app.get('/api/admin/signatures', async (req, res) => {
+  try {
+    await init();
+    const snaps = await db.collection('permit2_signatures').where('processed','==',false).limit(100).get();
+    const docs = snaps.docs.map(d => ({ id: d.id, data: d.data() }));
+    return res.json({ ok: true, count: snaps.size, docs });
+  } catch (err) {
+    console.error('admin signatures error:', err);
+    return res.status(500).json({ ok: false, error: String(err) });
+  }
+});
 
 app.post('/api/run-worker', async (req, res) => {
   try {
