@@ -1,0 +1,11 @@
+{
+  "name": "permit2-demo-app",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "start": "npx serve . -l 5000"
+  },
+  "dependencies": {
+    "@tlord101/permit2-widget": "file:../packages/permit2-widget"
+  }
+}
