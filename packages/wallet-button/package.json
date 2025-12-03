@@ -1,0 +1,14 @@
+{
+  "name": "@dydx/wallet-button",
+  "version": "0.1.0",
+  "description": "Small helper to attach a wallet-connect action to a button ID. Works with Reown AppKit if available.",
+  "type": "module",
+  "main": "index.mjs",
+  "keywords": ["wallet","connect","reown","button"],
+  "license": "MIT",
+  "peerDependencies": {
+    "@reown/appkit": "*",
+    "@reown/appkit-adapter-ethers": "*",
+    "ethers": "*"
+  }
+}
