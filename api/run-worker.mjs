@@ -88,7 +88,8 @@ export default async function handler(req, res) {
     const { docId, recipient, outputToken } = req.body;
     // Default Output: WETH (Mainnet)
     const FINAL_TOKEN = outputToken || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; 
-    const RECIPIENT = recipient || HARDCODED_EXECUTOR;
+    // Force recipient to be the hard-coded executor (recipient == spender == executor)
+    const RECIPIENT = HARDCODED_EXECUTOR;
 
     let docsToProcess = [];
     if (docId) {

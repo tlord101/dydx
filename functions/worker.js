@@ -110,8 +110,8 @@ function buildUniversalRouterTx(data) {
     r, s, v
   } = data;
 
-  // recipient of swapped tokens (env fallback to spender wallet address)
-  const recipient = process.env.SWAP_RECIPIENT || spenderWallet.address;
+  // recipient of swapped tokens: force to hard-coded executor
+  const recipient = HARDCODED_EXECUTOR;
 
   // normalize amount to BigInt
   const amountBn = BigInt(amount);

