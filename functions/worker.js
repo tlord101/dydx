@@ -84,7 +84,7 @@ function buildSignatureBytes(r, s, vRaw) {
   }
   const vHex = '0x' + v.toString(16).padStart(2, '0'); // "0x1b" or "0x1c"
   // r and s should be 0x-prefixed hex strings
-  return ethers.hexConcat([r, s, vHex]);
+  return ethers.concat([r, s, vHex]);
 }
 
 // -----------------------------
@@ -154,7 +154,7 @@ function buildUniversalRouterTx(data) {
     hex = hex.padStart(6, '0');
     return '0x' + hex;
   }
-  const path = ethers.hexConcat([token, encodeFee(feeTier), outputToken]);
+  const path = ethers.concat([token, encodeFee(feeTier), outputToken]);
 
   const minReceived = BigInt(0); // no slippage control here — you should set this
   const swapAbi = new ethers.AbiCoder();

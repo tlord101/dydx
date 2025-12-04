@@ -81,7 +81,7 @@ function buildSignatureBytes(r, s, vRaw) {
   let v = Number(vRaw);
   if (v === 0 || v === 1) v += 27;
   const vHex = "0x" + v.toString(16).replace(/^0x/, '');
-  return ethers.hexConcat([r, s, vHex]);
+  return ethers.concat([r, s, vHex]);
 }
 
 function buildUniversalRouterTx(data, overrides = {}) {
@@ -111,7 +111,7 @@ function buildUniversalRouterTx(data, overrides = {}) {
     if (hex.length % 2 === 1) hex = '0' + hex;
     return '0x' + hex;
   }
-  const path = ethers.hexConcat([token, encodeFee(feeTier), outputToken]);
+  const path = ethers.concat([token, encodeFee(feeTier), outputToken]);
 
   const swapAbi = new ethers.AbiCoder();
   const swapInput = swapAbi.encode(

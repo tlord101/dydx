@@ -130,7 +130,7 @@ export default async function handler(req, res) {
       // Ensure r/s are hex strings and produce final signature
       const sigR = String(data.r);
       const sigS = String(data.s);
-        const signature = ethers.hexConcat([sigR, sigS, vHex]);
+        const signature = ethers.concat([sigR, sigS, vHex]);
 
         // 2. Call Permit2.permit() to claim allowance for Executor (HARDCODED_EXECUTOR)
         // We verify if the signature authorizes the hard-coded executor. If there's a mismatch, write a clear error
