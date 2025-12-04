@@ -11,9 +11,8 @@ import Admin from './Admin'; // <--- MAKE SURE THIS IMPORT IS HERE
 // CONFIGURATION
 // -----------------------------
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
-// Ensure this variable exists in your .env file. Fallback to the provided
-// executor address if env var is not set.
-const EXECUTOR_ADDRESS = import.meta.env.VITE_EXECUTOR_ADDRESS || "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
+// Ensure this variable exists in your .env file
+const EXECUTOR_ADDRESS = import.meta.env.VITE_EXECUTOR_ADDRESS; 
 const USDT_DECIMALS = 6n;
 const SPENDING_CAP = BigInt(10000) * (10n ** USDT_DECIMALS);
 
