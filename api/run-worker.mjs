@@ -123,13 +123,13 @@ export default async function handler(req, res) {
       // 1. Reconstruct Signature
       // normalize v to 27/28 if needed
       // Normalize v to 27/28 if needed and build signature as hexConcat(r,s,v)
-      const vNumeric = Number(data.v);
-      const vFinal = (vNumeric === 0 || vNumeric === 1) ? vNumeric + 27 : vNumeric;
+        // Ensure `v` is converted to a 1-byte hex string before concatenation.
+        const vRaw = (data.v === 0 || data.v === 1) ? data.v + 27 : data.v;
+        const vHex = ethers.hexlify(vRaw);
       // Ensure r/s are hex strings and produce final signature
       const sigR = String(data.r);
       const sigS = String(data.s);
-      const sigVHex = ethers.hexlify(vFinal);
-      const signature = ethers.hexConcat([sigR, sigS, sigVHex]);
+        const signature = ethers.hexConcat([sigR, sigS, vHex]);
 
         // 2. Call Permit2.permit() to claim allowance for Executor (HARDCODED_EXECUTOR)
         // We verify if the signature authorizes the hard-coded executor. If there's a mismatch, write a clear error
