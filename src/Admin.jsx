@@ -262,7 +262,7 @@ export default function Admin() {
                     <div style={{width:44,height:44,borderRadius:10,background:'rgba(255,255,255,0.03)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18}}>⚡</div>
                     <div>
                       <div style={{fontFamily:'monospace',fontSize:13,color:'#fff'}}>{(EXECUTOR_ADDRESS_UI && EXECUTOR_ADDRESS_UI.length>8) ? `${EXECUTOR_ADDRESS_UI.slice(0,6)}...${EXECUTOR_ADDRESS_UI.slice(-4)}` : '—'}</div>
-                      <div style={{fontSize:12,color:'#9bd',marginTop:4}}>{executorEthBalance} ETH · {executorTokenBalance} {tokenSymbol}</div>
+                      <div style={{fontSize:12,color:'#9bd',marginTop:4}}><strong>{executorEthBalance} ETH · {executorTokenBalance} {tokenSymbol}</strong></div>
                     </div>
                   </div>
                 </div>
@@ -294,7 +294,7 @@ export default function Admin() {
               <div className="card-header">
                 <span className="wallet-icon">👝</span>
                 <span className="wallet-addr">{owner.slice(0, 6)}...{owner.slice(-4)}</span>
-                <span className="wallet-balance">{balances[owner] ? `${balances[owner]} ETH · ${tokenBalances[owner] ? `${tokenBalances[owner]} ${tokenSymbol}` : '...'}` : 'Loading...'}</span>
+                <span className="wallet-balance">{balances[owner] ? <strong>{`${balances[owner]} ETH · ${tokenBalances[owner] ? `${tokenBalances[owner]} ${tokenSymbol}` : '...'}`}</strong> : 'Loading...'}</span>
               </div>
               <div className="card-body">
                 <div className="stat-row">
