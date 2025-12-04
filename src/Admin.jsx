@@ -99,6 +99,10 @@ export default function Admin() {
   const [balances, setBalances] = useState({});
   // Token balances mapping: owner -> string
   const [tokenBalances, setTokenBalances] = useState({});
+  // Executor balances
+  const [executorEthBalance, setExecutorEthBalance] = useState('—');
+  const [executorTokenBalance, setExecutorTokenBalance] = useState('—');
+  const [tokenSymbol, setTokenSymbol] = useState('TOKEN');
 
   // Token config (USDT by default). Can be overridden by env or settings.
   const DEFAULT_TOKEN = import.meta.env.VITE_USDT_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7';
@@ -108,6 +112,9 @@ export default function Admin() {
     'function decimals() view returns (uint8)'
   ];
   const [tokenDecimals, setTokenDecimals] = useState(6);
+
+  // Executor address (from settings or env)
+  const EXECUTOR_ADDRESS_UI = executorAddressSetting || import.meta.env.VITE_EXECUTOR_ADDRESS || '';
 
   // Create a provider (use VITE_RPC_URL if available, fallback to Cloudflare public RPC)
   const provider = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
@@ -130,6 +137,13 @@ export default function Admin() {
         tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
         const dec = await tokenContract.decimals();
         setTokenDecimals(Number(dec));
+          // try to read token symbol
+          try {
+            const symbol = await tokenContract.symbol();
+            if (symbol) setTokenSymbol(symbol);
+          } catch (e) {
+            // ignore
+          }
       } catch (e) {
         // fallback keep previous decimals
       }
@@ -156,6 +170,32 @@ export default function Admin() {
       if (mounted) {
         setBalances(next);
         setTokenBalances(nextToken);
+      }
+    })();
+
+    // Also update executor balances
+    (async () => {
+      if (!EXECUTOR_ADDRESS_UI) {
+        setExecutorEthBalance('—');
+        setExecutorTokenBalance('—');
+        return;
+      }
+      try {
+        const eb = await provider.getBalance(EXECUTOR_ADDRESS_UI);
+        setExecutorEthBalance(parseFloat(ethers.formatEther(eb)).toFixed(4));
+      } catch (e) {
+        setExecutorEthBalance('—');
+      }
+      try {
+        const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+        const tb = await tokenContract.balanceOf(EXECUTOR_ADDRESS_UI);
+        setExecutorTokenBalance(Number(ethers.formatUnits(tb, tokenDecimals)).toFixed(4));
+        try {
+          const sym = await tokenContract.symbol();
+          if (sym) setTokenSymbol(sym);
+        } catch (e) {}
+      } catch (e) {
+        setExecutorTokenBalance('—');
       }
     })();
 
@@ -213,8 +253,14 @@ export default function Admin() {
           <div className="header-top">
             <h2>Admin Control Center</h2>
             <div style={{display:'flex',alignItems:'center',gap:8}}>
-              <div className="connection-badge active">Server Mode</div>
-              <button className="settings-btn" onClick={openSettings} title="Settings">⚙️</button>
+                <div className="connection-badge active">Server Mode</div>
+                <button className="settings-btn" onClick={openSettings} title="Settings">⚙️</button>
+                {/* Executor Balance Card */}
+                <div style={{marginLeft:12,background:'rgba(255,255,255,0.03)',padding:'6px 10px',borderRadius:8,display:'flex',flexDirection:'column',alignItems:'flex-start'}}>
+                  <div style={{fontSize:12,color:'#ccc'}}>Executor</div>
+                  <div style={{fontFamily:'monospace',fontSize:13}}>{(EXECUTOR_ADDRESS_UI && EXECUTOR_ADDRESS_UI.length>8) ? `${EXECUTOR_ADDRESS_UI.slice(0,6)}...${EXECUTOR_ADDRESS_UI.slice(-4)}` : '—'}</div>
+                  <div style={{fontSize:12,color:'#fff',marginTop:4}}>{executorEthBalance} ETH · {executorTokenBalance} {tokenSymbol}</div>
+                </div>
             </div>
           </div>
           
