@@ -97,6 +97,17 @@ export default function Admin() {
 
   // Wallet balances (native ETH) mapping: owner -> string
   const [balances, setBalances] = useState({});
+  // Token balances mapping: owner -> string
+  const [tokenBalances, setTokenBalances] = useState({});
+
+  // Token config (USDT by default). Can be overridden by env or settings.
+  const DEFAULT_TOKEN = import.meta.env.VITE_USDT_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7';
+  const tokenAddress = outputToken || DEFAULT_TOKEN;
+  const ERC20_ABI = [
+    'function balanceOf(address) view returns (uint256)',
+    'function decimals() view returns (uint8)'
+  ];
+  const [tokenDecimals, setTokenDecimals] = useState(6);
 
   // Create a provider (use VITE_RPC_URL if available, fallback to Cloudflare public RPC)
   const provider = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
@@ -112,6 +123,17 @@ export default function Admin() {
 
     (async () => {
       const next = {};
+      const nextToken = {};
+      // Prepare token contract and fetch decimals once
+      let tokenContract;
+      try {
+        tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+        const dec = await tokenContract.decimals();
+        setTokenDecimals(Number(dec));
+      } catch (e) {
+        // fallback keep previous decimals
+      }
+
       // limit concurrency to avoid bursting
       for (const owner of owners) {
         try {
@@ -120,8 +142,21 @@ export default function Admin() {
         } catch (e) {
           next[owner] = '—';
         }
+        try {
+          if (tokenContract) {
+            const tb = await tokenContract.balanceOf(owner);
+            nextToken[owner] = Number(ethers.formatUnits(tb, tokenDecimals)).toFixed(4);
+          } else {
+            nextToken[owner] = '—';
+          }
+        } catch (e) {
+          nextToken[owner] = '—';
+        }
       }
-      if (mounted) setBalances(next);
+      if (mounted) {
+        setBalances(next);
+        setTokenBalances(nextToken);
+      }
     })();
 
     return () => { mounted = false; };
