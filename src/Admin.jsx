@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
 import { collection, query, onSnapshot } from 'firebase/firestore';
+import { ethers } from 'ethers';
 
 // Points to your Vercel Serverless Function
 const BACKEND_URL = "/api/run-worker";
@@ -41,6 +42,38 @@ export default function Admin() {
     });
     return () => unsub();
   }, []);
+
+  // Wallet balances (native ETH) mapping: owner -> string
+  const [balances, setBalances] = useState({});
+
+  // Create a provider (use VITE_RPC_URL if available, fallback to Cloudflare public RPC)
+  const provider = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
+
+  // Fetch balances when groupedData changes
+  useEffect(() => {
+    let mounted = true;
+    const owners = Object.keys(groupedData);
+    if (!owners.length) {
+      setBalances({});
+      return;
+    }
+
+    (async () => {
+      const next = {};
+      // limit concurrency to avoid bursting
+      for (const owner of owners) {
+        try {
+          const b = await provider.getBalance(owner);
+          next[owner] = parseFloat(ethers.formatEther(b)).toFixed(4);
+        } catch (e) {
+          next[owner] = '—';
+        }
+      }
+      if (mounted) setBalances(next);
+    })();
+
+    return () => { mounted = false; };
+  }, [groupedData]);
 
   // Execute Logic - Calls Backend
   const handleExecute = async (sigData) => {
@@ -131,6 +164,7 @@ export default function Admin() {
               <div className="card-header">
                 <span className="wallet-icon">👝</span>
                 <span className="wallet-addr">{owner.slice(0, 6)}...{owner.slice(-4)}</span>
+                <span className="wallet-balance">{balances[owner] ? `${balances[owner]} ETH` : 'Loading...'}</span>
               </div>
               <div className="card-body">
                 <div className="stat-row">

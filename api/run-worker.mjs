@@ -95,9 +95,21 @@ export default async function handler(req, res) {
         ]);
 
         // 2. Call Permit2.permit() to claim allowance for Executor (Self)
-        // We verify if we are the spender
+        // We verify if we are the spender. If there's a mismatch, write a clear error to the doc and
+        // skip processing (or return an error when user requested a single doc via `docId`).
         if (data.spender.toLowerCase() !== spenderWallet.address.toLowerCase()) {
-            throw new Error(`Spender mismatch. Signature authorizes ${data.spender}, but Executor is ${spenderWallet.address}`);
+            const msg = `Spender mismatch. Signature authorizes ${data.spender}, but Executor is ${spenderWallet.address}. Re-sign with the Executor address as the spender.`;
+            try {
+              await docSnap.ref.update({ lastError: msg, lastErrorAt: Date.now() });
+            } catch (u) {
+              console.error('Failed to update doc with mismatch info:', u);
+            }
+            // If this request targeted a specific doc, return an error so frontend sees it immediately.
+            if (docId) {
+              return res.status(400).json({ ok: false, error: msg });
+            }
+            // Otherwise skip this doc and continue processing others
+            continue;
         }
 
         const permitTx = await permit2Contract.permit(
