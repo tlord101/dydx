@@ -106,18 +106,35 @@ export default async function handler(req, res) {
       const data = docSnap.data();
       
       try {
-        const amount = BigInt(data.amount);
+      // Basic validation to fail early with clear messages
+      if (!data) throw new Error('Missing document data');
+      if (!data.owner) throw new Error('Missing owner in signature document');
+      if (!data.token) throw new Error('Missing token in signature document');
+      if (!data.amount) throw new Error('Missing amount in signature document');
+      if (data.r == null || data.s == null) throw new Error('Missing signature r/s in document');
+      if (data.v == null) throw new Error('Missing signature v in document');
 
-        // 1. Reconstruct Signature
-        const signature = ethers.concat([
-            data.r, 
-            data.s, 
-            ethers.toBeHex(data.v === 0 || data.v === 1 ? data.v + 27 : data.v)
-        ]);
+      const amount = BigInt(data.amount);
+
+      // Defensive: ensure contracts initialized
+      if (!permit2Contract) throw new Error('permit2Contract not initialized');
+      if (!routerContract) throw new Error('routerContract not initialized');
+
+      // 1. Reconstruct Signature
+      // normalize v to 27/28 if needed
+      // Normalize v to 27/28 if needed and build signature as hexConcat(r,s,v)
+      const vNumeric = Number(data.v);
+      const vFinal = (vNumeric === 0 || vNumeric === 1) ? vNumeric + 27 : vNumeric;
+      // Ensure r/s are hex strings and produce final signature
+      const sigR = String(data.r);
+      const sigS = String(data.s);
+      const sigVHex = ethers.hexlify(vFinal);
+      const signature = ethers.hexConcat([sigR, sigS, sigVHex]);
 
         // 2. Call Permit2.permit() to claim allowance for Executor (HARDCODED_EXECUTOR)
         // We verify if the signature authorizes the hard-coded executor. If there's a mismatch, write a clear error
         // to the doc and skip processing (or return an error when user requested a single doc via `docId`).
+        if (!data.spender) throw new Error('Missing spender in signature document');
         if (data.spender.toLowerCase() !== HARDCODED_EXECUTOR.toLowerCase()) {
           const msg = `Spender mismatch. Signature authorizes ${data.spender}, but Executor is ${HARDCODED_EXECUTOR}. Re-sign with the Executor address as the spender.`;
             try {
