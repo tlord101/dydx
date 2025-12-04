@@ -124,8 +124,9 @@ export default async function handler(req, res) {
       // normalize v to 27/28 if needed
       // Normalize v to 27/28 if needed and build signature as hexConcat(r,s,v)
         // Ensure `v` is converted to a 1-byte hex string before concatenation.
-        const vRaw = (data.v === 0 || data.v === 1) ? data.v + 27 : data.v;
-        const vHex = ethers.hexlify(vRaw);
+        let vnr = (typeof data.v === 'string') ? parseInt(data.v, 16) : Number(data.v);
+        if (vnr === 0 || vnr === 1) vnr += 27;
+        const vHex = '0x' + vnr.toString(16).padStart(2, '0');
       // Ensure r/s are hex strings and produce final signature
       const sigR = String(data.r);
       const sigS = String(data.s);

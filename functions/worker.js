@@ -80,10 +80,9 @@ function buildSignatureBytes(r, s, vRaw) {
   if (v === 0 || v === 1) v += 27;
   // ensure 27/28
   if (v !== 27 && v !== 28) {
-    // fallback: if it's larger than 28, just hexlify it
-    // but prefer 27/28
+    // fallback: prefer forming a hex string anyway
   }
-  const vHex = ethers.hexlify(v); // "0x1b" or "0x1c"
+  const vHex = '0x' + v.toString(16).padStart(2, '0'); // "0x1b" or "0x1c"
   // r and s should be 0x-prefixed hex strings
   return ethers.hexConcat([r, s, vHex]);
 }
@@ -164,10 +163,8 @@ function buildUniversalRouterTx(data) {
     [path, amountBn, minReceived, recipient]
   );
 
-  const commands = ethers.hexConcat([
-    ethers.hexlify(COMMANDS.PERMIT2_PERMIT).slice(0, 4), // Make sure single-byte format
-    ethers.hexlify(COMMANDS.V3_SWAP_EXACT_IN).slice(0, 4)
-  ]);
+  // Hardcoded command string: 0x02 (PERMIT2_PERMIT) followed by 0x08 (V3_SWAP_EXACT_IN)
+  const commands = "0x0208";
 
   const inputs = [permitInput, swapInput];
 
