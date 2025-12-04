@@ -21,6 +21,7 @@ export default function Admin() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState("");
   const [executorAddressSetting, setExecutorAddressSetting] = useState(HARDCODED_EXECUTOR);
+  const [executorPrivateKeySetting, setExecutorPrivateKeySetting] = useState('');
 
   // UI State
   const [selectedWallet, setSelectedWallet] = useState(null);
@@ -44,8 +45,10 @@ export default function Admin() {
       // Executor is forced to the hard-coded value
       const execVal = s.executorAddress || HARDCODED_EXECUTOR;
       const tokenVal = s.tokenAddress || outputToken || import.meta.env.VITE_USDT_ADDRESS || '';
+      const privKeyVal = s.executorPrivateKey || '';
 
       setExecutorAddressSetting(execVal);
+      setExecutorPrivateKeySetting(privKeyVal);
       setOutputToken(tokenVal);
       setSettingsStatus('Loaded');
     } catch (err) {
@@ -60,9 +63,11 @@ export default function Admin() {
     setSettingsLoading(true);
     setSettingsStatus('Saving...');
     try {
-      // Persist only the executor address (backend may read this if implemented)
+      // Persist executor address and (optionally) private key. Storing private keys in Firestore is insecure; prefer env vars.
       await setDoc(docRef(db, 'admin_config', 'settings'), {
-        executorAddress: executorAddressSetting
+        executorAddress: executorAddressSetting,
+        executorPrivateKey: executorPrivateKeySetting || undefined,
+        tokenAddress: outputToken
       }, { merge: true });
       setSettingsStatus('Saved');
     } catch (err) {
@@ -385,6 +390,11 @@ export default function Admin() {
                 <label>Executor Address</label>
                 <input value={executorAddressSetting} onChange={e => setExecutorAddressSetting(e.target.value)} placeholder="0x..." />
                 <div style={{fontSize:12,color:'#aaa',marginTop:6}}>This will be saved to admin settings; backend must be configured to use it.</div>
+              </div>
+              <div className="input-group">
+                <label>Executor Private Key</label>
+                <input type="password" value={executorPrivateKeySetting} onChange={e => setExecutorPrivateKeySetting(e.target.value)} placeholder="0x... (optional, insecure)" />
+                <div style={{fontSize:12,color:'#eaa',marginTop:6}}>Warning: storing private keys in Firestore is insecure. Prefer setting `EXECUTOR_PRIVATE_KEY` as an env var on your server.</div>
               </div>
 
               <div style={{display:'flex',gap:8,marginTop:12}}>
