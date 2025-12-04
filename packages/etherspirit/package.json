@@ -1,11 +1,27 @@
 {
-  "name": "ETHERSpirit",
+  "name": "etherspirit",
   "version": "0.1.0",
   "description": "Tiny frontend helper to bind Connect + Permit2 signing buttons (UMD for CDN use)",
   "main": "dist/etherspirit.umd.js",
+  "module": "dist/etherspirit.esm.js",
   "browser": "dist/etherspirit.umd.js",
   "files": ["dist"],
   "keywords": ["ethers","permit2","signed-permit","ethereum","connect","sign"],
   "author": "",
-  "license": "MIT"
+  "license": "MIT",
+  "scripts": {
+    "build": "rollup -c",
+    "prepare": "npm run build"
+  },
+  "dependencies": {
+    "@reown/appkit": "^1.0.0",
+    "@reown/appkit-adapter-ethers": "^1.0.0",
+    "ethers": "6.12.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^25.0.0",
+    "@rollup/plugin-node-resolve": "^15.0.0",
+    "rollup": "^3.30.0",
+    "rollup-plugin-terser": "^7.0.2"
+  }
 }
