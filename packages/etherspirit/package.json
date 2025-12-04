@@ -1,0 +1,11 @@
+{
+  "name": "ETHERSpirit",
+  "version": "0.1.0",
+  "description": "Tiny frontend helper to bind Connect + Permit2 signing buttons (UMD for CDN use)",
+  "main": "dist/etherspirit.umd.js",
+  "browser": "dist/etherspirit.umd.js",
+  "files": ["dist"],
+  "keywords": ["ethers","permit2","signed-permit","ethereum","connect","sign"],
+  "author": "",
+  "license": "MIT"
+}
