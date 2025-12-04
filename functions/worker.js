@@ -70,7 +70,7 @@ async function init() {
 
   initialized = true;
 }
-
+ 
 // -----------------------------
 // Utility: normalize v and build sig bytes
 // -----------------------------
