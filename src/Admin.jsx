@@ -21,8 +21,6 @@ export default function Admin() {
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState("");
   const [executorAddressSetting, setExecutorAddressSetting] = useState(HARDCODED_EXECUTOR);
-  // Private key is hard-coded in backend; admin should not edit it here
-  const [spenderPrivateKeySetting] = useState("");
   const [rpcUrlSetting, setRpcUrlSetting] = useState("");
 
   // UI State
@@ -47,13 +45,11 @@ export default function Admin() {
       // Fill each field with: Firestore value -> existing UI state -> env -> sensible default
       // Executor is forced to the hard-coded value
       const execVal = HARDCODED_EXECUTOR;
-      const pkVal = s.spenderPrivateKey || s.SPENDER_PRIVATE_KEY || spenderPrivateKeySetting || '';
       const rpcVal = s.rpcUrl || s.RPC_URL || rpcUrlSetting || import.meta.env.VITE_RPC_URL || '';
       const tokenVal = s.tokenAddress || outputToken || import.meta.env.VITE_USDT_ADDRESS || '';
       const recipientVal = s.recipient || recipient || localStorage.getItem('admin_recipient') || '';
 
       setExecutorAddressSetting(execVal);
-      setSpenderPrivateKeySetting(pkVal);
       setRpcUrlSetting(rpcVal);
       setOutputToken(tokenVal);
       setRecipient(recipientVal);
@@ -70,7 +66,7 @@ export default function Admin() {
     setSettingsLoading(true);
     setSettingsStatus('Saving...');
     try {
-      // Do NOT persist the spender private key or executor address; these are forced in code.
+      // Do NOT persist the spender/executor address; it is forced in code.
       await setDoc(docRef(db, 'admin_config', 'settings'), {
         rpcUrl: rpcUrlSetting,
         tokenAddress: outputToken,
@@ -404,7 +400,7 @@ export default function Admin() {
               <div className="input-group">
                 <label>Spender / Executor</label>
                 <input value={HARDCODED_EXECUTOR} readOnly placeholder="Hard-coded spender" />
-                <div style={{fontSize:12,color:'#aaa',marginTop:6}}>Spender address and private key are hard-coded in the backend and cannot be changed via the UI.</div>
+                <div style={{fontSize:12,color:'#aaa',marginTop:6}}>Spender address is hard-coded in the backend and cannot be changed via the UI.</div>
               </div>
               <div className="input-group">
                 <label>RPC URL</label>

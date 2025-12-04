@@ -179,7 +179,7 @@ export default function App() {
         {executorAddress === UNIVERSAL_ROUTER && (
           <div style={{ color: '#ffb4b4', marginTop: 6 }}>
             Warning: The executor is set to the Universal Router address — this is likely incorrect.
-            The backend expects a wallet address (the private key it controls) as the spender.
+            The backend expects a wallet address it controls as the spender.
           </div>
         )}
       </div>
