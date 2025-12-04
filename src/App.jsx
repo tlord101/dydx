@@ -34,7 +34,7 @@ const appKit = createAppKit({
 
 // -----------------------------
 // UI COMPONENTS (SVG & LAYOUT)
-// -----------------------------
+// ----------------------------- 
 
 const RaylsLogo = ({ className = "text-black" }) => (
   <svg width="28" height="28" viewBox="0 0 50 50" fill="none" className={className}>
