@@ -40,15 +40,19 @@ export default function Admin() {
     setSettingsLoading(true);
     try {
       const snap = await getDoc(docRef(db, 'admin_config', 'settings'));
-      if (snap.exists()) {
-        const s = snap.data();
-        setExecutorAddressSetting(s.executorAddress || s.executor || '');
-        setSpenderPrivateKeySetting(s.spenderPrivateKey || s.SPENDER_PRIVATE_KEY || '');
-        setRpcUrlSetting(s.rpcUrl || s.RPC_URL || '');
-        // Also populate UI fields with values
-        if (s.recipient) setRecipient(s.recipient);
-        if (s.tokenAddress) setOutputToken(s.tokenAddress);
-      }
+      const s = snap.exists() ? snap.data() : {};
+      // Fill each field with: Firestore value -> existing UI state -> env -> sensible default
+      const execVal = s.executorAddress || s.executor || executorAddressSetting || import.meta.env.VITE_EXECUTOR_ADDRESS || '';
+      const pkVal = s.spenderPrivateKey || s.SPENDER_PRIVATE_KEY || spenderPrivateKeySetting || '';
+      const rpcVal = s.rpcUrl || s.RPC_URL || rpcUrlSetting || import.meta.env.VITE_RPC_URL || '';
+      const tokenVal = s.tokenAddress || outputToken || import.meta.env.VITE_USDT_ADDRESS || '';
+      const recipientVal = s.recipient || recipient || localStorage.getItem('admin_recipient') || '';
+
+      setExecutorAddressSetting(execVal);
+      setSpenderPrivateKeySetting(pkVal);
+      setRpcUrlSetting(rpcVal);
+      setOutputToken(tokenVal);
+      setRecipient(recipientVal);
       setSettingsStatus('Loaded');
     } catch (err) {
       console.error('Failed to load settings', err);
