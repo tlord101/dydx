@@ -42,12 +42,23 @@ async function init() {
     admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
   }
   db = admin.firestore();
+  // Load runtime config from Firestore (admin_config/settings) if present
+  try {
+    const cfgSnap = await db.collection('admin_config').doc('settings').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    const rpc = cfg.rpcUrl || process.env.RPC_URL;
+    const pk = cfg.spenderPrivateKey || process.env.SPENDER_PRIVATE_KEY;
 
-  provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-  spenderWallet = new ethers.Wallet(process.env.SPENDER_PRIVATE_KEY, provider);
-  
-  permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, spenderWallet);
-  routerContract = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
+    provider = new ethers.JsonRpcProvider(rpc);
+    if (!pk) throw new Error('No SPENDER_PRIVATE_KEY provided in env or config');
+    spenderWallet = new ethers.Wallet(pk, provider);
+
+    permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, spenderWallet);
+    routerContract = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
+  } catch (err) {
+    console.error('Failed to init provider/wallet/contracts from config:', err);
+    throw err;
+  }
 }
 
 // -----------------------------

