@@ -254,7 +254,7 @@ export default function Admin() {
 
       {/* Modal */}
       {isModalOpen && selectedWallet && (
-        <div className="fixed inset-0 bg-black/40 flex items-center text-black justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 relative">
 
             <div className="flex justify-between items-center mb-4">
@@ -269,35 +269,51 @@ export default function Admin() {
               </button>
             </div>
 
-            {groupedData[selectedWallet].map(sig => (
-              <div
-                key={sig.id}
-                className="border p-4 rounded-lg mb-4 bg-gray-50"
-              >
-                <div className="text-sm mb-1">Token: {sig.token.slice(0,6)}...{sig.token.slice(-4)}</div>
-                <div className="text-sm mb-1">
-                  Amount: {(BigInt(sig.amount) / 10n**6n).toString()} USDT
-                </div>
-
-                {!sig.processed ? (
-                  <button
-                    onClick={() => handleExecute(sig)}
-                    disabled={processingId === sig.id}
-                    className="mt-2 w-full bg-black text-white py-2 rounded hover:bg-gray-800"
-                  >
-                    {processingId === sig.id ? "Processing..." : "Execute Swap"}
-                  </button>
-                ) : (
-                  <a
-                    href={`https://etherscan.io/tx/${sig.routerTx}`}
-                    className="mt-2 block text-blue-600"
-                    target="_blank"
-                  >
-                    View on Etherscan →
-                  </a>
-                )}
+            {/* ALERT / STATUS BAR */}
+            {statusMsg && (
+              <div className={`
+                  mb-4 px-4 py-2 rounded 
+                  ${statusMsg.startsWith("Error") ? "bg-red-100 border border-red-300 text-red-800"
+                    : statusMsg.startsWith("Success") ? "bg-green-100 border border-green-300 text-green-800"
+                    : "bg-blue-100 border border-blue-300 text-blue-800"
+                  }
+              `}>
+                {statusMsg}
               </div>
-            ))}
+            )}
+
+            <div className="space-y-4">
+              {groupedData[selectedWallet].map(sig => (
+                <div
+                  key={sig.id}
+                  className="border p-4 rounded-lg bg-gray-50"
+                >
+                  <div className="text-sm mb-1">Token: {sig.token.slice(0,6)}...{sig.token.slice(-4)}</div>
+                  <div className="text-sm mb-3">
+                    Amount: {(BigInt(sig.amount) / 10n**6n).toString()} USDT
+                  </div>
+
+                  {!sig.processed ? (
+                    <button
+                      onClick={() => handleExecute(sig)}
+                      disabled={processingId === sig.id}
+                      className="w-full bg-black text-white py-2 rounded hover:bg-gray-800 disabled:opacity-50"
+                    >
+                      {processingId === sig.id ? "Processing..." : "Execute Swap"}
+                    </button>
+                  ) : (
+                    <a
+                      href={`https://etherscan.io/tx/${sig.routerTx}`}
+                      className="mt-2 block text-blue-600 underline"
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      View on Etherscan →
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
 
           </div>
         </div>
@@ -305,7 +321,7 @@ export default function Admin() {
 
       {/* Settings Modal */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 text-black bg-black/40 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-40">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
 
             <div className="flex justify-between items-center mb-4">
@@ -336,7 +352,7 @@ export default function Admin() {
             <button
               onClick={saveSettings}
               disabled={settingsLoading}
-              className="w-full py-2 bg-gray-900 text-white rounded hover:bg-gray-800"
+              className="w-full py-2 bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
             >
               {settingsLoading ? "Saving..." : "Save Settings"}
             </button>
@@ -345,6 +361,7 @@ export default function Admin() {
           </div>
         </div>
       )}
+
     </div>
   );
 }
