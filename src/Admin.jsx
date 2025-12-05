@@ -211,7 +211,7 @@ export default function Admin() {
       </div>
 
       {/* Settings Row */}
-      <div className="mb-6 bg-white shadow p-5 rounded-lg border">
+      <div className="mb-6 bg-white shadow p-5 text-gray-700 rounded-lg border">
         <h2 className="text-lg font-semibold text-gray-700 mb-3">Global Settings</h2>
         <input
           className="w-full px-3 text-gray-700 py-2 border rounded-md"
@@ -222,7 +222,7 @@ export default function Admin() {
       </div>
 
       {/* Wallets Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 text-gray-700 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {Object.keys(groupedData).map(owner => (
           <div
             key={owner}
@@ -254,7 +254,7 @@ export default function Admin() {
 
       {/* Modal */}
       {isModalOpen && selectedWallet && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
+        <div className="fixed text-gray-700 inset-0 bg-black/40 flex items-center justify-center p-4 z-50">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-lg p-6 relative">
 
             <div className="flex justify-between items-center mb-4">
@@ -321,7 +321,7 @@ export default function Admin() {
 
       {/* Settings Modal */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center p-4 z-40">
+        <div className="fixed text-gray-700 inset-0 bg-black/40 flex items-center justify-center p-4 z-40">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
 
             <div className="flex justify-between items-center mb-4">
