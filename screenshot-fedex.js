@@ -44,11 +44,11 @@ async function captureScreenshots() {
     executablePath: getChromePath(),
     headless: 'new',
     args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
-      '--disable-web-security',
-      '--disable-features=IsolateOrigins,site-per-process'
+      '--no-sandbox', // Required for running in containerized/CI environments
+      '--disable-setuid-sandbox', // Required when running as root
+      '--disable-dev-shm-usage', // Prevents Chrome from running out of memory
+      '--disable-web-security', // Allows loading local mock files; disable for production use
+      '--disable-features=IsolateOrigins,site-per-process' // Improves compatibility
     ]
   });
 

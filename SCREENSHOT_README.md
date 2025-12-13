@@ -106,17 +106,21 @@ await page.goto('https://www.fedex.com/en-gb/home.html', {
 ```
 
 ### Network issues
-The script includes flags to handle potential network and security issues:
-- `--no-sandbox`
-- `--disable-setuid-sandbox`
-- `--disable-web-security`
+The script includes Chrome flags for compatibility in containerized/CI environments. These flags are documented in the code:
+- `--no-sandbox` - Required for Docker/CI environments
+- `--disable-setuid-sandbox` - Required when running as root
+- `--disable-dev-shm-usage` - Prevents memory issues
+- `--disable-web-security` - Allows loading local mock files (for development/testing only)
+
+**Security Note**: The `--disable-web-security` flag is only needed for the local mock fallback. If you're certain the real website is accessible, you can remove this flag for enhanced security.
 
 ## Notes
 
 - Screenshots are NOT committed to the repository (excluded via .gitignore)
-- The script limits screenshots to 50 elements to keep file sizes manageable
+- The script limits screenshots to 50 elements to keep file sizes manageable and processing time reasonable
 - Elements are highlighted in red for easy identification
 - The summary file provides a complete list of all found elements
+- Dangerous URL schemes (javascript:, data:, vbscript:) are automatically filtered for security
 
 ## License
 
