@@ -92,15 +92,21 @@ async function captureScreenshots() {
     console.log('Finding all clickable elements...');
     const clickableElements = await page.evaluate((maxLength) => {
       const elements = [];
+      const timestamp = Date.now();
+      let counter = 0;
       
       // Find all links
       const links = document.querySelectorAll('a[href]');
       links.forEach((link, index) => {
         const text = link.innerText?.trim() || link.getAttribute('aria-label') || link.getAttribute('title') || `link-${index}`;
         const href = link.getAttribute('href');
-        if (href && !href.startsWith('javascript:') && text) {
+        // Filter out dangerous URL schemes
+        const dangerousSchemes = ['javascript:', 'data:', 'vbscript:'];
+        const isSafe = href && !dangerousSchemes.some(scheme => href.toLowerCase().startsWith(scheme));
+        
+        if (isSafe && text) {
           // Create unique ID attribute for reliable selection
-          const uniqueId = `auto-link-${index}-${Date.now()}`;
+          const uniqueId = `auto-link-${timestamp}-${counter++}`;
           link.setAttribute('data-screenshot-id', uniqueId);
           
           elements.push({
@@ -118,7 +124,7 @@ async function captureScreenshots() {
         const text = button.innerText?.trim() || button.getAttribute('aria-label') || button.getAttribute('value') || `button-${index}`;
         if (text) {
           // Create unique ID attribute for reliable selection
-          const uniqueId = `auto-button-${index}-${Date.now()}`;
+          const uniqueId = `auto-button-${timestamp}-${counter++}`;
           button.setAttribute('data-screenshot-id', uniqueId);
           
           elements.push({
