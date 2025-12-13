@@ -71,10 +71,17 @@ await page.setViewport({ width: 1920, height: 1080 }); // Change viewport size
 ## Troubleshooting
 
 ### Browser not found
-If you get an error about Chrome not being found, update the `executablePath` in the script:
+If you get an error about Chrome not being found, set the `PUPPETEER_EXECUTABLE_PATH` environment variable:
+
+```bash
+export PUPPETEER_EXECUTABLE_PATH=/path/to/your/chrome
+npm run screenshot-fedex
+```
+
+Or update the default path in the script (line 22):
 
 ```javascript
-executablePath: '/usr/bin/google-chrome', // Update this path
+executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
 ```
 
 ### Timeout errors

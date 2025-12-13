@@ -19,7 +19,7 @@ async function captureScreenshots() {
 
   console.log('Launching browser...');
   const browser = await puppeteer.launch({
-    executablePath: '/usr/bin/google-chrome',
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
     headless: 'new',
     args: [
       '--no-sandbox',
@@ -77,10 +77,14 @@ async function captureScreenshots() {
         const text = link.innerText?.trim() || link.getAttribute('aria-label') || link.getAttribute('title') || `link-${index}`;
         const href = link.getAttribute('href');
         if (href && !href.startsWith('javascript:') && text) {
+          // Create unique ID attribute for reliable selection
+          const uniqueId = `auto-link-${index}-${Date.now()}`;
+          link.setAttribute('data-screenshot-id', uniqueId);
+          
           elements.push({
             type: 'link',
             text: text.substring(0, 50), // Limit text length
-            selector: `a[href="${href}"]`,
+            selector: `[data-screenshot-id="${uniqueId}"]`,
             index: index
           });
         }
@@ -91,10 +95,14 @@ async function captureScreenshots() {
       buttons.forEach((button, index) => {
         const text = button.innerText?.trim() || button.getAttribute('aria-label') || button.getAttribute('value') || `button-${index}`;
         if (text) {
+          // Create unique ID attribute for reliable selection
+          const uniqueId = `auto-button-${index}-${Date.now()}`;
+          button.setAttribute('data-screenshot-id', uniqueId);
+          
           elements.push({
             type: 'button',
             text: text.substring(0, 50), // Limit text length
-            selector: `button:nth-of-type(${index + 1})`,
+            selector: `[data-screenshot-id="${uniqueId}"]`,
             index: index
           });
         }
@@ -134,7 +142,8 @@ async function captureScreenshots() {
         await delay(500);
 
         // Take screenshot
-        const filename = `${String(i + 1).padStart(3, '0')}-${element.type}-${element.text.replace(/[^a-zA-Z0-9]/g, '_')}.png`;
+        const sanitizedText = element.text.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+        const filename = `${String(i + 1).padStart(3, '0')}-${element.type}-${sanitizedText}.png`;
         const screenshotPath = path.join(screenshotsDir, filename);
         await page.screenshot({ path: screenshotPath, fullPage: false });
 
