@@ -1,9 +1,31 @@
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
+
+// Configuration constants
+const MAX_SCREENSHOTS = 50; // Limit to prevent excessive file generation and long processing times
+const ELEMENT_TEXT_MAX_LENGTH = 50; // Max length for element text in summary
+const FILENAME_TEXT_MAX_LENGTH = 30; // Max length for sanitized text in filenames
 
 // Helper function to wait
 const delay = (ms) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Helper function to get Chrome executable path based on OS
+function getChromePath() {
+  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
+    return process.env.PUPPETEER_EXECUTABLE_PATH;
+  }
+  
+  const platform = os.platform();
+  if (platform === 'win32') {
+    return 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+  } else if (platform === 'darwin') {
+    return '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome';
+  } else {
+    return '/usr/bin/google-chrome';
+  }
+}
 
 /**
  * Script to visit FedEx website and take screenshots for all clickable links and buttons
@@ -19,7 +41,7 @@ async function captureScreenshots() {
 
   console.log('Launching browser...');
   const browser = await puppeteer.launch({
-    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
+    executablePath: getChromePath(),
     headless: 'new',
     args: [
       '--no-sandbox',
@@ -68,7 +90,7 @@ async function captureScreenshots() {
 
     // Find all clickable elements (links and buttons)
     console.log('Finding all clickable elements...');
-    const clickableElements = await page.evaluate(() => {
+    const clickableElements = await page.evaluate((maxLength) => {
       const elements = [];
       
       // Find all links
@@ -83,7 +105,7 @@ async function captureScreenshots() {
           
           elements.push({
             type: 'link',
-            text: text.substring(0, 50), // Limit text length
+            text: text.substring(0, maxLength),
             selector: `[data-screenshot-id="${uniqueId}"]`,
             index: index
           });
@@ -101,7 +123,7 @@ async function captureScreenshots() {
           
           elements.push({
             type: 'button',
-            text: text.substring(0, 50), // Limit text length
+            text: text.substring(0, maxLength),
             selector: `[data-screenshot-id="${uniqueId}"]`,
             index: index
           });
@@ -109,7 +131,7 @@ async function captureScreenshots() {
       });
 
       return elements;
-    });
+    }, ELEMENT_TEXT_MAX_LENGTH);
 
     console.log(`Found ${clickableElements.length} clickable elements`);
 
@@ -121,8 +143,7 @@ async function captureScreenshots() {
     summary += `Total clickable elements found: ${clickableElements.length}\n\n`;
 
     // Take screenshots for each element (limit to prevent too many screenshots)
-    const maxScreenshots = 50; // Reasonable limit
-    const elementsToCapture = clickableElements.slice(0, maxScreenshots);
+    const elementsToCapture = clickableElements.slice(0, MAX_SCREENSHOTS);
 
     for (let i = 0; i < elementsToCapture.length; i++) {
       const element = elementsToCapture[i];
@@ -142,7 +163,7 @@ async function captureScreenshots() {
         await delay(500);
 
         // Take screenshot
-        const sanitizedText = element.text.replace(/[^a-zA-Z0-9]/g, '_').substring(0, 30);
+        const sanitizedText = element.text.replace(/[^a-zA-Z0-9]/g, '_').substring(0, FILENAME_TEXT_MAX_LENGTH);
         const filename = `${String(i + 1).padStart(3, '0')}-${element.type}-${sanitizedText}.png`;
         const screenshotPath = path.join(screenshotsDir, filename);
         await page.screenshot({ path: screenshotPath, fullPage: false });
@@ -168,8 +189,8 @@ async function captureScreenshots() {
     fs.writeFileSync(summaryPath, summary);
     console.log(`\nSummary saved to: ${summaryPath}`);
 
-    if (clickableElements.length > maxScreenshots) {
-      console.log(`\nNote: Limited to ${maxScreenshots} screenshots out of ${clickableElements.length} total elements.`);
+    if (clickableElements.length > MAX_SCREENSHOTS) {
+      console.log(`\nNote: Limited to ${MAX_SCREENSHOTS} screenshots out of ${clickableElements.length} total elements.`);
     }
 
   } catch (error) {

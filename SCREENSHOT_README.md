@@ -56,15 +56,20 @@ The script creates a `screenshots` directory (git-ignored) containing:
 ## Configuration
 
 The script is configured to:
-- Capture up to 50 screenshots (to prevent excessive file generation)
+- Capture up to 50 screenshots (to prevent excessive file generation and long processing times)
 - Use 1920x1080 viewport size
 - Run in headless mode
 - Wait for network idle before capturing
+- Auto-detect Chrome path for Windows, macOS, and Linux
 
 You can modify these settings in the `screenshot-fedex.js` file:
 
 ```javascript
-const maxScreenshots = 50; // Change this to capture more/fewer screenshots
+const MAX_SCREENSHOTS = 50; // Change this to capture more/fewer screenshots
+const ELEMENT_TEXT_MAX_LENGTH = 50; // Max length for element text in summary
+const FILENAME_TEXT_MAX_LENGTH = 30; // Max length for text in filenames
+
+// In captureScreenshots function:
 await page.setViewport({ width: 1920, height: 1080 }); // Change viewport size
 ```
 
@@ -73,16 +78,22 @@ await page.setViewport({ width: 1920, height: 1080 }); // Change viewport size
 ### Browser not found
 If you get an error about Chrome not being found, set the `PUPPETEER_EXECUTABLE_PATH` environment variable:
 
+**Linux/macOS:**
 ```bash
 export PUPPETEER_EXECUTABLE_PATH=/path/to/your/chrome
 npm run screenshot-fedex
 ```
 
-Or update the default path in the script (line 22):
-
-```javascript
-executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || '/usr/bin/google-chrome',
+**Windows:**
+```cmd
+set PUPPETEER_EXECUTABLE_PATH=C:\Path\To\Chrome\chrome.exe
+npm run screenshot-fedex
 ```
+
+The script automatically detects the default Chrome installation path for:
+- **Linux**: `/usr/bin/google-chrome`
+- **macOS**: `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`
+- **Windows**: `C:\Program Files\Google\Chrome\Application\chrome.exe`
 
 ### Timeout errors
 If the page takes too long to load, increase the timeout:
