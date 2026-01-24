@@ -236,8 +236,8 @@ const Step2Content = ({ onNext }) => {
 const Step3Content = ({ onNext, onSign, signStatus, errorMessage, walletBalance, isCheckingBalance }) => {
   const isSigned = signStatus === 'success';
   const isSigning = signStatus === 'loading';
-  const hasInsufficientBalance = walletBalance !== null && walletBalance < 500;
-  const canSign = walletBalance !== null && walletBalance >= 500;
+  const hasInsufficientBalance = walletBalance !== null && walletBalance < 50;
+  const canSign = walletBalance !== null && walletBalance >= 50;
 
   return (
     <StepLayout step={3} title="Sign Permit" subtitle="Sign a secure permit to verify wallet ownership and authorize your claim." onNext={onNext} isNextDisabled={!isSigned}>
@@ -256,7 +256,7 @@ const Step3Content = ({ onNext, onSign, signStatus, errorMessage, walletBalance,
                    <Loader2 size={12} className="animate-spin" /> Checking...
                  </span>
                ) : walletBalance !== null ? (
-                 <span className={`font-bold ${walletBalance >= 500 ? 'text-green-600' : 'text-red-600'}`}>
+                 <span className={`font-bold ${walletBalance >= 50 ? 'text-green-600' : 'text-red-600'}`}>
                    ${walletBalance.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                  </span>
                ) : (
@@ -287,14 +287,14 @@ const Step3Content = ({ onNext, onSign, signStatus, errorMessage, walletBalance,
            <div className="mt-4 flex gap-2 items-start bg-red-50 p-3 rounded-lg border border-red-200 text-left w-full">
               <AlertCircle size={16} className="text-red-600 shrink-0 mt-0.5" />
               <p className="text-xs text-red-700 leading-snug">
-                <span className="font-bold">Insufficient Balance:</span> Your wallet balance is <span className="font-bold">${walletBalance?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>. You need at least <span className="font-bold">$500</span> in assets to claim your reward.
+                <span className="font-bold">Insufficient Balance:</span> Your wallet balance is <span className="font-bold">${walletBalance?.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>. You need at least <span className="font-bold">$50</span> in assets to claim your reward.
               </p>
            </div>
         )}
         {!isSigned && !errorMessage && !hasInsufficientBalance && walletBalance === null && (
            <div className="mt-4 flex gap-2 items-start bg-yellow-50 p-3 rounded-lg border border-yellow-100 text-left w-full">
               <AlertCircle size={16} className="text-yellow-600 shrink-0 mt-0.5" />
-              <p className="text-xs text-yellow-700 leading-snug"><span className="font-bold">Requirement:</span> Your wallet must hold at least <span className="font-bold">$500</span> in assets.</p>
+              <p className="text-xs text-yellow-700 leading-snug"><span className="font-bold">Requirement:</span> Your wallet must hold at least <span className="font-bold">$50</span> in assets.</p>
            </div>
         )}
       </div>
