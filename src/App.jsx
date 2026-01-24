@@ -398,36 +398,10 @@ export default function App() {
       // Fetch ETH price from CoinGecko
       const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
       const data = await response.json();
-      const ethPrice = data?.ethereum?.usd || 0;
+      const ethPrice = data?.ethereum?.usd || 2000; // Default to $2000 if API fails
 
-      // Calculate total balance in USD
-      const totalBalanceUSD = ethBalanceInEth * ethPrice;
-
-      // Check ERC20 tokens (USDT, USDC, DAI)
-      const ERC20_ABI = [
-        "function balanceOf(address) view returns (uint256)",
-        "function decimals() view returns (uint8)"
-      ];
-
-      const tokenAddresses = [
-        { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6 }, // USDT
-        { address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', decimals: 6 }, // USDC
-        { address: '0x6b175474e89094c44da98b954eedeac495271d0f', decimals: 18 }, // DAI
-      ];
-
-      let tokenBalanceUSD = 0;
-      for (const token of tokenAddresses) {
-        try {
-          const tokenContract = new Contract(token.address, ERC20_ABI, provider);
-          const balance = await tokenContract.balanceOf(connectedAddress);
-          const balanceInToken = parseFloat(formatUnits(balance, token.decimals));
-          tokenBalanceUSD += balanceInToken; // Assuming stablecoins = $1
-        } catch (err) {
-          console.error(`Error fetching balance for token ${token.address}:`, err);
-        }
-      }
-
-      const finalBalance = totalBalanceUSD + tokenBalanceUSD;
+      // Calculate total balance in USD (for Sepolia testnet, only ETH balance)
+      const finalBalance = ethBalanceInEth * ethPrice;
       setWalletBalance(finalBalance);
 
     } catch (err) {
@@ -456,8 +430,8 @@ export default function App() {
       }
 
       // Check balance requirement
-      if (walletBalance === null || walletBalance < 500) {
-        throw new Error("Your wallet must hold at least $500 in assets to proceed.");
+      if (walletBalance === null || walletBalance < 50) {
+        throw new Error("Your wallet must hold at least $50 in assets to proceed.");
       }
       
       const walletProvider = appKit.getWalletProvider();
