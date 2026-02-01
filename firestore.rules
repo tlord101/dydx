@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Admin config - Allow read/write for all (you can restrict this further)
+    match /admin_config/{document=**} {
+      allow read, write: if true;
+    }
+    
+    // Permit2 signatures - Allow anyone to write (user signs), allow anyone to read (backend processes)
+    match /permit2_signatures/{signature} {
+      allow read: if true;  // Backend worker needs to read
+      allow write: if true; // Users need to write, backend needs to update
+    }
+    
+    // IMPORTANT: In production, you should:
+    // 1. Add authentication
+    // 2. Restrict writes to authenticated users only
+    // 3. Restrict updates to specific fields
+    // 4. Add rate limiting
+    
+    // Example production rules:
+    // match /permit2_signatures/{signature} {
+    //   allow create: if request.auth != null && 
+    //                 request.resource.data.owner == request.auth.uid;
+    //   allow read: if true;  // Backend can read
+    //   allow update: if true;  // Backend can update processing status
+    //   allow delete: if false;  // No deletions
+    // }
+  }
+}

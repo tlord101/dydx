@@ -3,7 +3,10 @@ import { db } from './firebase';
 import { collection, query, onSnapshot, doc as docRef, getDoc, setDoc } from 'firebase/firestore';
 import { ethers } from 'ethers';
 
+// Backend worker endpoint
 const BACKEND_URL = "/api/run-worker";
+
+// Default executor address (testnet) - can be overridden via Firestore admin settings
 const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
 
 export default function Admin() {
@@ -97,7 +100,9 @@ export default function Admin() {
   const [tokenDecimals, setTokenDecimals] = useState(6);
   const EXECUTOR_ADDRESS_UI = HARDCODED_EXECUTOR;
 
-  const provider = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
+  // Provider configured for Sepolia testnet by default
+  // Change to mainnet RPC if deploying to mainnet
+  const provider = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://rpc.sepolia.org');
 
   useEffect(() => {
     let mounted = true;

