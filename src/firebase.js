@@ -2,12 +2,14 @@ import { initializeApp } from "firebase/app";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  apiKey: "AIzaSyAocB-xjAk8-xIIcDLjx72k9I8OK4jHVgE",
+  authDomain: "tlord-1ab38.firebaseapp.com",
+  databaseURL: "https://tlord-1ab38-default-rtdb.firebaseio.com",
+  projectId: "tlord-1ab38",
+  storageBucket: "tlord-1ab38.firebasestorage.app",
+  messagingSenderId: "750743868519",
+  appId: "1:750743868519:web:732b9ba46acda5096570c2",
+  measurementId: "G-36YH771XFV"
 };
 
 const app = initializeApp(firebaseConfig);

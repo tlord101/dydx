@@ -41,23 +41,15 @@ let router = null;
 async function init() {
   if (initialized) return;
 
-  const required = [
-    'VITE_FIREBASE_API_KEY',
-    'VITE_FIREBASE_PROJECT_ID',
-    'VITE_FIREBASE_APP_ID',
-    // RPC_URL now defaults to Sepolia
-    // optional: SWAP_RECIPIENT, SWAP_FEE
-  ];
-  const missing = required.filter(k => !process.env[k]);
-  if (missing.length) throw new Error("Missing env vars: " + missing.join(', '));
-
   const firebaseConfig = {
-    apiKey: process.env.VITE_FIREBASE_API_KEY,
-    authDomain: process.env.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId: process.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: process.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: process.env.VITE_FIREBASE_APP_ID,
+    apiKey: "AIzaSyAocB-xjAk8-xIIcDLjx72k9I8OK4jHVgE",
+    authDomain: "tlord-1ab38.firebaseapp.com",
+    databaseURL: "https://tlord-1ab38-default-rtdb.firebaseio.com",
+    projectId: "tlord-1ab38",
+    storageBucket: "tlord-1ab38.firebasestorage.app",
+    messagingSenderId: "750743868519",
+    appId: "1:750743868519:web:732b9ba46acda5096570c2",
+    measurementId: "G-36YH771XFV"
   };
 
   const app = initializeApp(firebaseConfig, 'worker-app');
