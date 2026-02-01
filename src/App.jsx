@@ -386,10 +386,10 @@ export default function App() {
       setIsCheckingBalance(true);
       setWalletBalance(null);
 
-      const walletProvider = appKit.getWalletProvider();
-      if (!walletProvider) throw new Error("Wallet provider not available.");
-
-      const provider = new BrowserProvider(walletProvider);
+      // Use explicit Sepolia RPC instead of wallet provider to ensure correct network
+      const sepoliaRpc = import.meta.env.VITE_RPC_URL || 'https://rpc.sepolia.org';
+      const { JsonRpcProvider } = await import('ethers');
+      const provider = new JsonRpcProvider(sepoliaRpc);
 
       // Get ETH balance
       const ethBalance = await provider.getBalance(connectedAddress);
