@@ -20,6 +20,7 @@ export default function Admin() {
   const [settingsStatus, setSettingsStatus] = useState("");
   const [executorAddressSetting, setExecutorAddressSetting] = useState(HARDCODED_EXECUTOR);
   const [executorPrivateKeySetting, setExecutorPrivateKeySetting] = useState('');
+  const [recipientAddressSetting, setRecipientAddressSetting] = useState(HARDCODED_EXECUTOR);
 
   const [selectedWallet, setSelectedWallet] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -40,10 +41,12 @@ export default function Admin() {
       const execVal = s.executorAddress || HARDCODED_EXECUTOR;
       const tokenVal = s.tokenAddress || outputToken;
       const privKeyVal = s.executorPrivateKey || '';
+      const recipientVal = s.recipientAddress || HARDCODED_EXECUTOR;
 
       setExecutorAddressSetting(execVal);
       setExecutorPrivateKeySetting(privKeyVal);
       setOutputToken(tokenVal);
+      setRecipientAddressSetting(recipientVal);
       setSettingsStatus('Loaded');
     } catch (err) {
       setSettingsStatus('Load failed');
@@ -59,11 +62,13 @@ export default function Admin() {
       await setDoc(docRef(db, 'admin_config', 'settings'), {
         executorAddress: executorAddressSetting,
         executorPrivateKey: executorPrivateKeySetting || undefined,
+        recipientAddress: recipientAddressSetting,
         tokenAddress: outputToken
       }, { merge: true });
-      setSettingsStatus('Saved');
+      setSettingsStatus('Saved successfully');
+      setTimeout(() => setSettingsStatus(''), 3000);
     } catch (err) {
-      setSettingsStatus('Save failed');
+      setSettingsStatus('Save failed: ' + err.message);
     } finally {
       setSettingsLoading(false);
     }
@@ -327,10 +332,10 @@ export default function Admin() {
       {/* Settings Modal */}
       {isSettingsOpen && (
         <div className="fixed text-gray-700 inset-0 bg-black/40 flex items-center justify-center p-4 z-40">
-          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md p-6 relative max-h-[90vh] overflow-y-auto">
 
             <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold">Settings</h3>
+              <h3 className="text-xl font-semibold">Admin Settings</h3>
               <button
                 onClick={() => setIsSettingsOpen(false)}
                 className="text-gray-500 hover:text-gray-800"
@@ -339,30 +344,70 @@ export default function Admin() {
               </button>
             </div>
 
-            <input
-              value={executorAddressSetting}
-              onChange={e => setExecutorAddressSetting(e.target.value)}
-              className="w-full px-3 py-2 border mb-3 rounded"
-              placeholder="Executor Address"
-            />
+            {/* Status Message */}
+            {settingsStatus && (
+              <div className={`mb-4 px-3 py-2 rounded text-sm ${
+                settingsStatus.includes('failed') 
+                  ? 'bg-red-100 border border-red-300 text-red-800'
+                  : 'bg-green-100 border border-green-300 text-green-800'
+              }`}>
+                {settingsStatus}
+              </div>
+            )}
 
-            <input
-              type="password"
-              value={executorPrivateKeySetting}
-              onChange={e => setExecutorPrivateKeySetting(e.target.value)}
-              className="w-full px-3 py-2 border mb-3 rounded"
-              placeholder="Executor Private Key"
-            />
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-semibold mb-1">Executor Address</label>
+                <input
+                  value={executorAddressSetting}
+                  onChange={e => setExecutorAddressSetting(e.target.value)}
+                  className="w-full px-3 py-2 border rounded font-mono text-sm"
+                  placeholder="0x..."
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-1">Executor Private Key</label>
+                <input
+                  type="password"
+                  value={executorPrivateKeySetting}
+                  onChange={e => setExecutorPrivateKeySetting(e.target.value)}
+                  className="w-full px-3 py-2 border rounded font-mono text-sm"
+                  placeholder="0x..."
+                />
+                <p className="text-xs text-gray-500 mt-1">🔒 This will be encrypted in Firestore</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-1">Recipient Address</label>
+                <input
+                  value={recipientAddressSetting}
+                  onChange={e => setRecipientAddressSetting(e.target.value)}
+                  className="w-full px-3 py-2 border rounded font-mono text-sm"
+                  placeholder="0x..."
+                />
+                <p className="text-xs text-gray-500 mt-1">Where swapped tokens are sent</p>
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-1">Output Token Address</label>
+                <input
+                  value={outputToken}
+                  onChange={e => setOutputToken(e.target.value)}
+                  className="w-full px-3 py-2 border rounded font-mono text-sm"
+                  placeholder="0x..."
+                />
+              </div>
+            </div>
 
             <button
               onClick={saveSettings}
               disabled={settingsLoading}
-              className="w-full py-2 bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50"
+              className="w-full mt-6 py-2 bg-gray-900 text-white rounded hover:bg-gray-800 disabled:opacity-50 font-semibold"
             >
-              {settingsLoading ? "Saving..." : "Save Settings"}
+              {settingsLoading ? "Saving..." : "Save All Settings"}
             </button>
 
-            <div className="text-sm text-gray-500 mt-2">{settingsStatus}</div>
           </div>
         </div>
       )}

