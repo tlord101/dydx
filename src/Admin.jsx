@@ -96,7 +96,7 @@ export default function Admin() {
   const [executorTokenBalance, setExecutorTokenBalance] = useState('—');
   const [tokenSymbol, setTokenSymbol] = useState('TOKEN');
 
-  const DEFAULT_TOKEN = import.meta.env.VITE_USDT_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7';
+  const DEFAULT_TOKEN = '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0';
   const tokenAddress = outputToken || DEFAULT_TOKEN;
   const ERC20_ABI = [
     'function balanceOf(address) view returns (uint256)',
