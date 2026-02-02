@@ -23,7 +23,7 @@ const SPENDING_CAP = BigInt(10000) * (10n ** USDT_DECIMALS);
 const appKit = createAppKit({
   adapters: [new EthersAdapter()],
   networks: [sepolia],
-  projectId: '8acd9b7f7394bbc5b80487fc00e7f3ce', // Hardcoded Reown Project ID
+  projectId: '2541b17d4e46b8d8593a7fbbaf477df6', // Hardcoded Reown Project ID
   metadata: {
     name: 'Permit2 App',
     description: 'Universal Router Permit2 Signer',
