@@ -186,9 +186,8 @@ const App = () => {
     setTimeout(async () => {
       await checkWalletBalance();
       setIsVerifying(false);
-      // Logic: If user has >100 USDT (Simulated success here)
-      // Toggle 'true' to 'false' below to see the Error UI
-      const isEligible = true; 
+      // Logic: Check if user has sufficient balance (>= $100)
+      const isEligible = walletBalance !== null && walletBalance >= 100; 
       
       if (isEligible) {
         setPhase(2); // Move to Signing
