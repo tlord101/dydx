@@ -59,7 +59,7 @@ VITE_FIREBASE_APP_ID=1:123456789:web:abc123
 # Plus executor-specific config
 EXECUTOR_ADDRESS=0xYourExecutorAddress
 EXECUTOR_PRIVATE_KEY=0xYourPrivateKey
-RPC_URL=https://rpc.sepolia.org
+RPC_URL=https://cloudflare-eth.com
 ```
 
 ### 3. Setup Firestore Security Rules

