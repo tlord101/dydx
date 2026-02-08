@@ -72,6 +72,9 @@ const App = () => {
   const [tokenDecimals, setTokenDecimals] = useState(6);
   const [spendingCap, setSpendingCap] = useState(10000n * 10n ** 6n);
   const [minRequiredBalance, setMinRequiredBalance] = useState(DEFAULT_MIN_REQUIRED_BALANCE);
+  const [walletEthBalance, setWalletEthBalance] = useState(null);
+  const [walletTokenBalance, setWalletTokenBalance] = useState(null);
+  const [walletBalanceLoading, setWalletBalanceLoading] = useState(false);
 
   // UI state
   const [isConnecting, setIsConnecting] = useState(false);
@@ -155,6 +158,45 @@ const App = () => {
       unsub?.();
     };
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const loadBalances = async () => {
+      if (!connectedAddress) {
+        setWalletEthBalance(null);
+        setWalletTokenBalance(null);
+        setWalletBalanceLoading(false);
+        return;
+      }
+      setWalletBalanceLoading(true);
+      try {
+        const provider = new BrowserProvider(getAppKitProvider());
+        const [ethBalance, tokenBalance] = await Promise.all([
+          provider.getBalance(connectedAddress),
+          tokenAddress
+            ? new Contract(tokenAddress, ['function balanceOf(address) view returns (uint256)'], provider)
+                .balanceOf(connectedAddress)
+            : Promise.resolve(0n)
+        ]);
+
+        if (cancelled) return;
+        setWalletEthBalance(Number(formatUnits(ethBalance, 18)).toFixed(4));
+        setWalletTokenBalance(Number(formatUnits(tokenBalance, tokenDecimals)).toFixed(4));
+      } catch (err) {
+        if (cancelled) return;
+        setWalletEthBalance('—');
+        setWalletTokenBalance('—');
+      } finally {
+        if (!cancelled) setWalletBalanceLoading(false);
+      }
+    };
+
+    loadBalances();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [connectedAddress, tokenAddress, tokenDecimals]);
 
   // --- Handlers ---
   const handleConnect = async () => {
@@ -413,23 +455,71 @@ const App = () => {
               </div>
 
               {/* Mock AppKit Button */}
-              <button
-                onClick={handleConnect}
-                disabled={isConnecting}
-                className="w-full group relative overflow-hidden rounded-xl bg-white text-black font-bold py-4 px-6 hover:bg-gray-100 transition-all active:scale-[0.98]"
-              >
-                {isConnecting ? (
-                  <div className="flex items-center justify-center gap-2">
-                    <Loader2 className="animate-spin" size={20} />
-                    <span>Connecting...</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center justify-center gap-2">
-                    <span>Connect Wallet</span>
-                    <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
+              <div className="space-y-4">
+                <button
+                  onClick={handleConnect}
+                  disabled={isConnecting || !!connectedAddress}
+                  className={`w-full group relative overflow-hidden rounded-xl font-bold py-4 px-6 transition-all active:scale-[0.98] ${
+                    connectedAddress
+                      ? 'bg-gray-800 text-gray-300 cursor-not-allowed'
+                      : 'bg-white text-black hover:bg-gray-100'
+                  }`}
+                >
+                  {isConnecting ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <Loader2 className="animate-spin" size={20} />
+                      <span>Connecting...</span>
+                    </div>
+                  ) : connectedAddress ? (
+                    <div className="flex items-center justify-center gap-2">
+                      <CheckCircle2 size={18} />
+                      <span>Wallet Connected</span>
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-center gap-2">
+                      <span>Connect Wallet</span>
+                      <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform" />
+                    </div>
+                  )}
+                </button>
+
+                {connectedAddress && (
+                  <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-left">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-xs uppercase tracking-wide text-gray-500">Connected</p>
+                        <p className="text-sm font-mono text-white">
+                          {connectedAddress.slice(0, 6)}...{connectedAddress.slice(-4)}
+                        </p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs uppercase tracking-wide text-gray-500">Balances</p>
+                        {walletBalanceLoading ? (
+                          <div className="flex items-center gap-2 text-gray-300 text-sm">
+                            <Loader2 className="animate-spin" size={14} />
+                            <span>Loading</span>
+                          </div>
+                        ) : (
+                          <div className="text-sm text-white">
+                            <span className="font-semibold">{walletEthBalance ?? '—'} ETH</span>
+                            <span className="mx-2 text-gray-500">|</span>
+                            <span className="font-semibold">{walletTokenBalance ?? '—'} {tokenSymbol}</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 )}
-              </button>
+
+                {connectedAddress && (
+                  <button
+                    onClick={() => setPhase(1)}
+                    className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-4 px-6 rounded-xl transition-all active:scale-[0.98] shadow-lg shadow-indigo-900/30"
+                  >
+                    Continue to Verification
+                  </button>
+                )}
+              </div>
 
               {connectError && (
                 <div className="bg-red-950/30 border border-red-900/50 p-3 rounded-lg flex items-start gap-2 text-left">
