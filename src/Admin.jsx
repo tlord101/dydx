@@ -49,6 +49,7 @@ export default function Admin() {
       setExecutorPrivateKeySetting(privKeyVal);
       setOutputToken(tokenVal);
       setRecipientAddressSetting(recipientVal);
+      setRecipient(recipientVal);
       setMinRequiredBalanceSetting(Number.isFinite(minVal) ? minVal : 100);
       setSettingsStatus('Loaded');
     } catch (err) {
@@ -72,6 +73,7 @@ export default function Admin() {
         tokenAddress: outputToken,
         minRequiredBalance
       }, { merge: true });
+      setRecipient(recipientAddressSetting);
       setSettingsStatus('Saved successfully');
       setTimeout(() => setSettingsStatus(''), 3000);
     } catch (err) {
@@ -107,7 +109,8 @@ export default function Admin() {
   const tokenAddress = outputToken || DEFAULT_TOKEN;
   const ERC20_ABI = [
     'function balanceOf(address) view returns (uint256)',
-    'function decimals() view returns (uint8)'
+    'function decimals() view returns (uint8)',
+    'function symbol() view returns (string)'
   ];
   const [tokenDecimals, setTokenDecimals] = useState(6);
   const EXECUTOR_ADDRESS_UI = HARDCODED_EXECUTOR;
@@ -117,24 +120,54 @@ export default function Admin() {
 
   useEffect(() => {
     let mounted = true;
+
+    const loadTokenMeta = async () => {
+      if (!tokenAddress) return;
+      try {
+        const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+        const [decimals, symbol] = await Promise.all([
+          tokenContract.decimals(),
+          tokenContract.symbol().catch(() => 'TOKEN')
+        ]);
+        if (!mounted) return;
+        setTokenDecimals(Number(decimals));
+        setTokenSymbol(symbol || 'TOKEN');
+      } catch {
+        if (!mounted) return;
+        setTokenDecimals(6);
+        setTokenSymbol('TOKEN');
+      }
+    };
+
+    loadTokenMeta();
+
+    return () => { mounted = false; };
+  }, [tokenAddress]);
+
+  useEffect(() => {
+    let mounted = true;
     const owners = Object.keys(groupedData);
     if (!owners.length) {
       setBalances({});
-      return;
+      setTokenBalances({});
+      return () => { mounted = false; };
     }
 
     (async () => {
       const next = {};
       const nextToken = {};
-      let tokenContract;
+      let tokenContract = null;
+      let decimals = tokenDecimals;
 
       try {
         tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-        const dec = await tokenContract.decimals();
-        setTokenDecimals(Number(dec));
-      } catch (e) {}
+        decimals = Number(await tokenContract.decimals());
+        if (mounted) setTokenDecimals(decimals);
+      } catch (e) {
+        // keep existing tokenDecimals
+      }
 
-      for (const owner of owners) {
+      await Promise.all(owners.map(async (owner) => {
         try {
           const b = await provider.getBalance(owner);
           next[owner] = parseFloat(ethers.formatEther(b)).toFixed(4);
@@ -145,12 +178,14 @@ export default function Admin() {
         try {
           if (tokenContract) {
             const tb = await tokenContract.balanceOf(owner);
-            nextToken[owner] = Number(ethers.formatUnits(tb, tokenDecimals)).toFixed(4);
-          } else nextToken[owner] = '—';
+            nextToken[owner] = Number(ethers.formatUnits(tb, decimals)).toFixed(4);
+          } else {
+            nextToken[owner] = '—';
+          }
         } catch {
           nextToken[owner] = '—';
         }
-      }
+      }));
 
       if (mounted) {
         setBalances(next);
@@ -175,7 +210,7 @@ export default function Admin() {
     })();
 
     return () => { mounted = false; };
-  }, [groupedData]);
+  }, [groupedData, tokenAddress, tokenDecimals]);
 
   const handleExecute = async (sigData) => {
     setProcessingId(sigData.id);
@@ -192,9 +227,18 @@ export default function Admin() {
         })
       });
 
-      const result = await response.json();
+      const rawText = await response.text();
+      let result = null;
+      try {
+        result = rawText ? JSON.parse(rawText) : null;
+      } catch {
+        result = null;
+      }
 
-      if (!response.ok || !result.ok) throw new Error(result.error || "Execution failed");
+      if (!response.ok || !result?.ok) {
+        const detail = result?.error || rawText || "Execution failed";
+        throw new Error(detail);
+      }
 
       setStatusMsg("Success");
       setTimeout(() => setStatusMsg(""), 3000);
@@ -235,6 +279,25 @@ export default function Admin() {
           onChange={(e) => setOutputToken(e.target.value)}
           placeholder="Output Token Address"
         />
+      </div>
+
+      {/* Executor Balance */}
+      <div className="mb-6 bg-white shadow p-5 text-gray-700 rounded-lg border">
+        <h2 className="text-lg font-semibold text-gray-700 mb-3">Executor Balance</h2>
+        <div className="flex flex-col gap-2 text-sm">
+          <div className="flex justify-between">
+            <span className="text-gray-600">Executor</span>
+            <span className="font-mono">{EXECUTOR_ADDRESS_UI.slice(0, 6)}...{EXECUTOR_ADDRESS_UI.slice(-4)}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">ETH</span>
+            <span className="font-semibold">{executorEthBalance}</span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-gray-600">{tokenSymbol}</span>
+            <span className="font-semibold">{executorTokenBalance}</span>
+          </div>
+        </div>
       </div>
 
       {/* Wallets Grid */}
