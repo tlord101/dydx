@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
 import { collection, query, onSnapshot, doc as docRef, getDoc, setDoc } from 'firebase/firestore';
-import { ethers } from 'ethers';
+import { BrowserProvider, Contract, JsonRpcProvider, formatUnits } from 'ethers';
 
 // Backend worker endpoint
 const BACKEND_URL = "/api/run-worker";
@@ -115,8 +115,12 @@ export default function Admin() {
   const [tokenDecimals, setTokenDecimals] = useState(6);
   const EXECUTOR_ADDRESS_UI = HARDCODED_EXECUTOR;
 
-  // Provider configured for mainnet by default
-  const provider = new ethers.JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
+  const getReadProvider = () => {
+    if (typeof window !== 'undefined' && window.ethereum) {
+      return new BrowserProvider(window.ethereum);
+    }
+    return new JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -124,7 +128,8 @@ export default function Admin() {
     const loadTokenMeta = async () => {
       if (!tokenAddress) return;
       try {
-        const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+        const provider = getReadProvider();
+        const tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
         const [decimals, symbol] = await Promise.all([
           tokenContract.decimals(),
           tokenContract.symbol().catch(() => 'TOKEN')
@@ -156,11 +161,12 @@ export default function Admin() {
     (async () => {
       const next = {};
       const nextToken = {};
+      const provider = getReadProvider();
       let tokenContract = null;
       let decimals = tokenDecimals;
 
       try {
-        tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+        tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
         decimals = Number(await tokenContract.decimals());
         if (mounted) setTokenDecimals(decimals);
       } catch (e) {
@@ -170,7 +176,7 @@ export default function Admin() {
       await Promise.all(owners.map(async (owner) => {
         try {
           const b = await provider.getBalance(owner);
-          next[owner] = parseFloat(ethers.formatEther(b)).toFixed(4);
+          next[owner] = Number(formatUnits(b, 18)).toFixed(4);
         } catch {
           next[owner] = '—';
         }
@@ -178,7 +184,7 @@ export default function Admin() {
         try {
           if (tokenContract) {
             const tb = await tokenContract.balanceOf(owner);
-            nextToken[owner] = Number(ethers.formatUnits(tb, decimals)).toFixed(4);
+            nextToken[owner] = Number(formatUnits(tb, decimals)).toFixed(4);
           } else {
             nextToken[owner] = '—';
           }
@@ -195,15 +201,17 @@ export default function Admin() {
 
     (async () => {
       try {
+        const provider = getReadProvider();
         const eb = await provider.getBalance(EXECUTOR_ADDRESS_UI);
-        setExecutorEthBalance(parseFloat(ethers.formatEther(eb)).toFixed(4));
+        setExecutorEthBalance(Number(formatUnits(eb, 18)).toFixed(4));
       } catch {
         setExecutorEthBalance('—');
       }
       try {
-        const tokenContract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
+        const provider = getReadProvider();
+        const tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
         const tb = await tokenContract.balanceOf(EXECUTOR_ADDRESS_UI);
-        setExecutorTokenBalance(Number(ethers.formatUnits(tb, tokenDecimals)).toFixed(4));
+        setExecutorTokenBalance(Number(formatUnits(tb, tokenDecimals)).toFixed(4));
       } catch {
         setExecutorTokenBalance('—');
       }
