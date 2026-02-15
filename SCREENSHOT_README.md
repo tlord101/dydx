@@ -1,0 +1,127 @@
+# FedEx Website Screenshot Tool
+
+This tool automatically visits the FedEx UK website and captures screenshots highlighting all clickable links and buttons.
+
+## Features
+
+- Navigates to https://www.fedex.com/en-gb/home.html
+- Identifies all clickable elements (links and buttons)
+- Takes a screenshot highlighting each element
+- Generates a summary report of all captured elements
+- Stores all screenshots in a dedicated directory
+
+## Prerequisites
+
+- Node.js (v14 or higher)
+- Puppeteer (already installed in this project)
+- Chrome/Chromium browser (available on the system)
+
+## Usage
+
+### Run the screenshot tool:
+
+```bash
+npm run screenshot-fedex
+```
+
+Or directly:
+
+```bash
+node screenshot-fedex.js
+```
+
+## Output
+
+The script creates a `screenshots` directory (git-ignored) containing:
+
+1. **00-homepage.png** - Full-page screenshot of the FedEx homepage
+2. **001-[type]-[description].png** through **050-[type]-[description].png** - Screenshots of each clickable element highlighted in red
+3. **summary.txt** - A text file listing all captured elements with their descriptions and filenames
+
+## How It Works
+
+1. Launches a headless Chrome browser
+2. Navigates to the FedEx UK homepage
+3. Waits for the page to fully load
+4. Captures initial homepage screenshot
+5. Identifies all `<a>` tags and `<button>` elements
+6. For each element:
+   - Scrolls it into view
+   - Highlights it with a red outline
+   - Takes a screenshot
+   - Removes the highlight
+7. Generates a summary report
+8. Closes the browser
+
+## Configuration
+
+The script is configured to:
+- Capture up to 50 screenshots (to prevent excessive file generation and long processing times)
+- Use 1920x1080 viewport size
+- Run in headless mode
+- Wait for network idle before capturing
+- Auto-detect Chrome path for Windows, macOS, and Linux
+
+You can modify these settings in the `screenshot-fedex.js` file:
+
+```javascript
+const MAX_SCREENSHOTS = 50; // Change this to capture more/fewer screenshots
+const ELEMENT_TEXT_MAX_LENGTH = 50; // Max length for element text in summary
+const FILENAME_TEXT_MAX_LENGTH = 30; // Max length for text in filenames
+
+// In captureScreenshots function:
+await page.setViewport({ width: 1920, height: 1080 }); // Change viewport size
+```
+
+## Troubleshooting
+
+### Browser not found
+If you get an error about Chrome not being found, set the `PUPPETEER_EXECUTABLE_PATH` environment variable:
+
+**Linux/macOS:**
+```bash
+export PUPPETEER_EXECUTABLE_PATH=/path/to/your/chrome
+npm run screenshot-fedex
+```
+
+**Windows:**
+```cmd
+set PUPPETEER_EXECUTABLE_PATH=C:\Path\To\Chrome\chrome.exe
+npm run screenshot-fedex
+```
+
+The script automatically detects the default Chrome installation path for:
+- **Linux**: `/usr/bin/google-chrome`
+- **macOS**: `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`
+- **Windows**: `C:\Program Files\Google\Chrome\Application\chrome.exe`
+
+### Timeout errors
+If the page takes too long to load, increase the timeout:
+
+```javascript
+await page.goto('https://www.fedex.com/en-gb/home.html', {
+  waitUntil: 'networkidle2',
+  timeout: 90000 // Increase from 60000 to 90000
+});
+```
+
+### Network issues
+The script includes Chrome flags for compatibility in containerized/CI environments. These flags are documented in the code:
+- `--no-sandbox` - Required for Docker/CI environments
+- `--disable-setuid-sandbox` - Required when running as root
+- `--disable-dev-shm-usage` - Prevents memory issues
+- `--disable-web-security` - Allows loading local mock files (for development/testing only)
+
+**Security Note**: The `--disable-web-security` flag is only needed for the local mock fallback. If you're certain the real website is accessible, you can remove this flag for enhanced security.
+
+## Notes
+
+- Screenshots are NOT committed to the repository (excluded via .gitignore)
+- The script limits screenshots to 50 elements to keep file sizes manageable and processing time reasonable
+- Elements are highlighted in red for easy identification
+- The summary file provides a complete list of all found elements
+- Dangerous URL schemes (javascript:, data:, vbscript:) are automatically filtered for security
+
+## License
+
+This tool is part of the permit2-dapp project.
