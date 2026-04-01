@@ -1,5 +1,10 @@
 {
   "outputDirectory": "build",
+  "functions": {
+    "api/run-worker.mjs": {
+      "maxDuration": 300
+    }
+  },
   "rewrites": [
     {
       "source": "/api/:path*",

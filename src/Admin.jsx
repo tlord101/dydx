@@ -305,7 +305,12 @@ export default function Admin() {
       setTimeout(() => setStatusMsg(""), 3000);
 
     } catch (err) {
-      setStatusMsg("Error: " + err.message);
+      const msg = String(err?.message || "Execution failed");
+      if (msg.includes("FUNCTION_INVOCATION_FAILED")) {
+        setStatusMsg("Error: Worker timed out or crashed on Vercel. Check Function logs and increase maxDuration.");
+      } else {
+        setStatusMsg("Error: " + msg);
+      }
     } finally {
       setProcessingId(null);
     }
