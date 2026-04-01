@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { db } from './firebase';
 import { collection, query, onSnapshot, doc as docRef, getDoc, setDoc } from 'firebase/firestore';
-import { BrowserProvider, Contract, JsonRpcProvider, formatUnits } from 'ethers';
+import { Contract, JsonRpcProvider, formatUnits, isAddress } from 'ethers';
 
 // Backend worker endpoint
 const BACKEND_URL = "/api/run-worker";
@@ -140,9 +140,6 @@ export default function Admin() {
   const EXECUTOR_ADDRESS_UI = HARDCODED_EXECUTOR;
 
   const getReadProvider = () => {
-    if (typeof window !== 'undefined' && window.ethereum) {
-      return new BrowserProvider(window.ethereum);
-    }
     return new JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
   };
 
@@ -151,6 +148,12 @@ export default function Admin() {
 
     const loadTokenMeta = async () => {
       if (!tokenAddress) return;
+      if (!isAddress(tokenAddress)) {
+        if (!mounted) return;
+        setTokenDecimals(6);
+        setTokenSymbol('TOKEN');
+        return;
+      }
       try {
         const provider = getReadProvider();
         const tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
@@ -197,13 +200,17 @@ export default function Admin() {
 
         // Validate token address before attempting to create contract
         if (tokenAddress && tokenAddress !== '0x0000000000000000000000000000000000000000') {
+          if (!isAddress(tokenAddress)) {
+            if (mounted) setBalancesError('Invalid token address format');
+            return;
+          }
           try {
             tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
             decimals = Number(await tokenContract.decimals());
             if (mounted) setTokenDecimals(decimals);
           } catch (e) {
             console.error('Failed to load token contract:', e);
-            if (mounted) setBalancesError('Invalid token address');
+            if (mounted) setBalancesError('Token not found on configured RPC network');
           }
         }
 
