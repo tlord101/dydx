@@ -34,6 +34,20 @@ const UNIVERSAL_ROUTER_ABI = [
   "function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"
 ];
 
+const PERMIT_TYPES = {
+  PermitDetails: [
+    { name: 'token', type: 'address' },
+    { name: 'amount', type: 'uint160' },
+    { name: 'expiration', type: 'uint48' },
+    { name: 'nonce', type: 'uint48' }
+  ],
+  PermitSingle: [
+    { name: 'details', type: 'PermitDetails' },
+    { name: 'spender', type: 'address' },
+    { name: 'sigDeadline', type: 'uint256' }
+  ]
+};
+
 // -----------------------------
 // Lazy Globals
 // -----------------------------
@@ -44,6 +58,7 @@ let permit2Contract = null;
 let routerContract = null;
 let OUTPUT_TOKEN_OVERRIDE = null;
 let ACTIVE_NETWORK = 'mainnet';
+let ACTIVE_CHAIN_ID = 1;
 let ROUTER_ADDRESS = UNIVERSAL_ROUTER_BY_NETWORK.mainnet;
 
 async function init(requestedNetwork) {
@@ -67,6 +82,7 @@ async function init(requestedNetwork) {
     const cfgSnap = await getDoc(doc(db, 'admin_config', 'settings'));
     const cfg = cfgSnap.exists() ? cfgSnap.data() : {};
     ACTIVE_NETWORK = requestedNetwork === 'sepolia' ? 'sepolia' : (cfg.activeNetwork === 'sepolia' ? 'sepolia' : 'mainnet');
+    ACTIVE_CHAIN_ID = ACTIVE_NETWORK === 'sepolia' ? 11155111 : 1;
     const scoped = cfg.networks?.[ACTIVE_NETWORK] || cfg;
     const rpc = scoped.rpcUrl || process.env.RPC_URL || (ACTIVE_NETWORK === 'sepolia' ? 'https://rpc.sepolia.org' : 'https://cloudflare-eth.com');
 
@@ -92,6 +108,30 @@ async function init(requestedNetwork) {
     console.error('Failed to init:', err);
     throw err;
   }
+}
+
+function recoverPermitSigner(data, chainId) {
+  const signature = ethers.concat([String(data.r), String(data.s), (() => {
+    let v = typeof data.v === 'string' ? parseInt(data.v, 16) : Number(data.v);
+    if (v === 0 || v === 1) v += 27;
+    return '0x' + v.toString(16).padStart(2, '0');
+  })()]);
+  const domain = {
+    name: 'Permit2',
+    chainId,
+    verifyingContract: PERMIT2_ADDRESS
+  };
+  const value = {
+    details: {
+      token: data.token,
+      amount: BigInt(data.amount),
+      expiration: Number(data.deadline),
+      nonce: Number(data.nonce)
+    },
+    spender: EXECUTOR_ADDRESS,
+    sigDeadline: Number(data.deadline)
+  };
+  return ethers.verifyTypedData(domain, PERMIT_TYPES, value, signature);
 }
 
 // -----------------------------
@@ -136,8 +176,30 @@ export default async function handler(req, res) {
       const data = item.data;
       
       try {
-        if (!data || !data.owner || !data.token || !data.amount || !data.r || !data.s || !data.v) {
-             throw new Error('Missing data in signature document');
+        if (!data || !data.owner || !data.token || !data.amount || !data.deadline || !data.r || !data.s || data.v === undefined) {
+          await updateDoc(doc(db, 'permit2_signatures', item.id), { lastError: 'missing fields in signature document', lastErrorAt: Date.now() });
+          if (docId) return res.status(400).json({ ok: false, error: 'missing fields in signature document' });
+          continue;
+        }
+
+        if (data.chainId !== undefined && Number(data.chainId) !== ACTIVE_CHAIN_ID) {
+          const msg = `chain mismatch: signed ${data.chainId}, worker ${ACTIVE_CHAIN_ID}`;
+          await updateDoc(doc(db, 'permit2_signatures', item.id), { lastError: msg, lastErrorAt: Date.now() });
+          if (docId) return res.status(400).json({ ok: false, error: msg });
+          continue;
+        }
+
+        try {
+          const validationChainId = data.chainId !== undefined ? Number(data.chainId) : ACTIVE_CHAIN_ID;
+          const recoveredSigner = recoverPermitSigner(data, validationChainId);
+          if (recoveredSigner.toLowerCase() !== String(data.owner).toLowerCase()) {
+            throw new Error(`Invalid signer: recovered ${recoveredSigner} does not match owner ${data.owner}`);
+          }
+        } catch (sigErr) {
+          const msg = sigErr?.message || String(sigErr);
+          await updateDoc(doc(db, 'permit2_signatures', item.id), { lastError: msg, lastErrorAt: Date.now() });
+          if (docId) return res.status(400).json({ ok: false, error: msg });
+          continue;
         }
 
         const amount = BigInt(data.amount);

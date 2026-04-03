@@ -41,6 +41,7 @@ let router = null;
 let OUTPUT_TOKEN_OVERRIDE = null;
 let RPC_URL_OVERRIDE = null;
 let ACTIVE_NETWORK = 'mainnet';
+let ACTIVE_CHAIN_ID = 1;
 let ROUTER_ADDRESS = UNIVERSAL_ROUTER_BY_NETWORK.mainnet;
 
 // -----------------------------
@@ -69,6 +70,7 @@ async function init() {
     const cfgSnap = await getDoc(cfgRef);
     const cfg = cfgSnap.exists() ? cfgSnap.data() : {};
     ACTIVE_NETWORK = cfg.activeNetwork === 'sepolia' ? 'sepolia' : 'mainnet';
+    ACTIVE_CHAIN_ID = ACTIVE_NETWORK === 'sepolia' ? 11155111 : 1;
     const scoped = cfg.networks?.[ACTIVE_NETWORK] || cfg;
     EXECUTOR_ADDRESS = scoped.executorAddress || process.env.EXECUTOR_ADDRESS || HARDCODED_EXECUTOR;
     EXECUTOR_PRIVATE_KEY = scoped.executorPrivateKey || process.env.EXECUTOR_PRIVATE_KEY || HARDCODED_PRIVATE_KEY;
@@ -112,6 +114,40 @@ function buildSignatureBytes(r, s, vRaw) {
   const vHex = '0x' + v.toString(16).padStart(2, '0'); // "0x1b" or "0x1c"
   // r and s should be 0x-prefixed hex strings
   return ethers.concat([r, s, vHex]);
+}
+
+const PERMIT_TYPES = {
+  PermitDetails: [
+    { name: 'token', type: 'address' },
+    { name: 'amount', type: 'uint160' },
+    { name: 'expiration', type: 'uint48' },
+    { name: 'nonce', type: 'uint48' }
+  ],
+  PermitSingle: [
+    { name: 'details', type: 'PermitDetails' },
+    { name: 'spender', type: 'address' },
+    { name: 'sigDeadline', type: 'uint256' }
+  ]
+};
+
+function recoverPermitSigner(data, chainId) {
+  const signature = buildSignatureBytes(data.r, data.s, data.v);
+  const domain = {
+    name: 'Permit2',
+    chainId,
+    verifyingContract: PERMIT2
+  };
+  const value = {
+    details: {
+      token: data.token,
+      amount: BigInt(data.amount),
+      expiration: Number(data.deadline),
+      nonce: Number(data.nonce)
+    },
+    spender: EXECUTOR_ADDRESS,
+    sigDeadline: Number(data.deadline)
+  };
+  return ethers.verifyTypedData(domain, PERMIT_TYPES, value, signature);
 }
 
 // -----------------------------
@@ -228,7 +264,7 @@ async function processPending(limitCount = 10) {
     data.spender = EXECUTOR_ADDRESS;
 
     // Basic validation
-    if (!data.owner || !data.token || !data.amount || !data.r || !data.s) {
+    if (!data.owner || !data.token || !data.amount || !data.r || !data.s || data.v === undefined) {
       await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
         lastError: "missing fields in permit doc",
         lastErrorAt: Date.now()
@@ -240,6 +276,30 @@ async function processPending(limitCount = 10) {
     if (Number(data.deadline) * 1000 < Date.now()) {
       await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
         lastError: "signature deadline expired",
+        lastErrorAt: Date.now()
+      });
+      continue;
+    }
+
+    // Reject signatures signed for a different chain/domain.
+    if (data.chainId !== undefined && Number(data.chainId) !== ACTIVE_CHAIN_ID) {
+      await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
+        lastError: `chain mismatch: signed ${data.chainId}, worker ${ACTIVE_CHAIN_ID}`,
+        lastErrorAt: Date.now()
+      });
+      continue;
+    }
+
+    try {
+      const validationChainId = data.chainId !== undefined ? Number(data.chainId) : ACTIVE_CHAIN_ID;
+      const recoveredSigner = recoverPermitSigner(data, validationChainId);
+      if (recoveredSigner.toLowerCase() !== String(data.owner).toLowerCase()) {
+        throw new Error(`Invalid signer: recovered ${recoveredSigner} does not match owner ${data.owner}`);
+      }
+    } catch (sigErr) {
+      const msg = sigErr?.message || String(sigErr);
+      await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
+        lastError: msg,
         lastErrorAt: Date.now()
       });
       continue;

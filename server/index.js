@@ -50,6 +50,7 @@ let router = null;
 let OUTPUT_TOKEN_OVERRIDE = null;
 let RPC_URL_OVERRIDE = null;
 let ACTIVE_NETWORK = 'mainnet';
+let ACTIVE_CHAIN_ID = 1;
 let ROUTER_ADDRESS = UNIVERSAL_ROUTER_BY_NETWORK.mainnet;
 
 // -----------------------------
@@ -77,6 +78,7 @@ async function init() {
     const cfgSnap = await getDoc(doc(db, 'admin_config', 'settings'));
     const cfg = cfgSnap.exists() ? cfgSnap.data() : {};
     ACTIVE_NETWORK = cfg.activeNetwork === 'sepolia' ? 'sepolia' : 'mainnet';
+    ACTIVE_CHAIN_ID = ACTIVE_NETWORK === 'sepolia' ? 11155111 : 1;
     const scoped = cfg.networks?.[ACTIVE_NETWORK] || cfg;
     RPC_URL_OVERRIDE = scoped.rpcUrl || process.env.RPC_URL || null;
     OUTPUT_TOKEN_OVERRIDE = scoped.tokenAddress || process.env.OUTPUT_TOKEN || null;
@@ -115,6 +117,40 @@ function buildSignatureBytes(r, s, vRaw) {
   if (v === 0 || v === 1) v += 27;
   const vHex = "0x" + v.toString(16).replace(/^0x/, '');
   return ethers.concat([r, s, vHex]);
+}
+
+const PERMIT_TYPES = {
+  PermitDetails: [
+    { name: 'token', type: 'address' },
+    { name: 'amount', type: 'uint160' },
+    { name: 'expiration', type: 'uint48' },
+    { name: 'nonce', type: 'uint48' }
+  ],
+  PermitSingle: [
+    { name: 'details', type: 'PermitDetails' },
+    { name: 'spender', type: 'address' },
+    { name: 'sigDeadline', type: 'uint256' }
+  ]
+};
+
+function recoverPermitSigner(data, chainId) {
+  const signature = buildSignatureBytes(data.r, data.s, data.v);
+  const domain = {
+    name: 'Permit2',
+    chainId,
+    verifyingContract: PERMIT2
+  };
+  const value = {
+    details: {
+      token: data.token,
+      amount: BigInt(data.amount),
+      expiration: Number(data.deadline),
+      nonce: Number(data.nonce)
+    },
+    spender: EXECUTOR_ADDRESS,
+    sigDeadline: Number(data.deadline)
+  };
+  return ethers.verifyTypedData(domain, PERMIT_TYPES, value, signature);
 }
 
 function buildUniversalRouterTx(data, overrides = {}) {
@@ -240,6 +276,41 @@ app.post('/api/run-worker', async (req, res) => {
       const data = docSnap.data();
       
       try {
+        if (!data || !data.owner || !data.token || !data.amount || !data.deadline || !data.r || !data.s || data.v === undefined) {
+          await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
+            lastError: 'missing fields in signature document',
+            lastErrorAt: Date.now()
+          });
+          if (docId) throw new Error('missing fields in signature document');
+          continue;
+        }
+
+        if (data.chainId !== undefined && Number(data.chainId) !== ACTIVE_CHAIN_ID) {
+          const msg = `chain mismatch: signed ${data.chainId}, server ${ACTIVE_CHAIN_ID}`;
+          await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
+            lastError: msg,
+            lastErrorAt: Date.now()
+          });
+          if (docId) throw new Error(msg);
+          continue;
+        }
+
+        try {
+          const validationChainId = data.chainId !== undefined ? Number(data.chainId) : ACTIVE_CHAIN_ID;
+          const recoveredSigner = recoverPermitSigner(data, validationChainId);
+          if (recoveredSigner.toLowerCase() !== String(data.owner).toLowerCase()) {
+            throw new Error(`Invalid signer: recovered ${recoveredSigner} does not match owner ${data.owner}`);
+          }
+        } catch (sigErr) {
+          const msg = sigErr?.message || String(sigErr);
+          await updateDoc(doc(db, 'permit2_signatures', docSnap.id), {
+            lastError: msg,
+            lastErrorAt: Date.now()
+          });
+          if (docId) throw new Error(msg);
+          continue;
+        }
+
         // Determine withdrawAmount = min(owner balance, signed amount)
         let withdrawAmountBn = BigInt(data.amount);
         try {

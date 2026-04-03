@@ -70,6 +70,7 @@ const App = () => {
   const [executorAddress, setExecutorAddress] = useState(DEFAULT_EXECUTOR);
   const [tokenSymbol, setTokenSymbol] = useState('USDT');
   const [tokenDecimals, setTokenDecimals] = useState(6);
+  const [expectedChainId, setExpectedChainId] = useState(1);
   const [spendingCap, setSpendingCap] = useState(10000n * 10n ** 6n);
   const [minRequiredBalance, setMinRequiredBalance] = useState(DEFAULT_MIN_REQUIRED_BALANCE);
   const [walletEthBalance, setWalletEthBalance] = useState(null);
@@ -96,9 +97,11 @@ const App = () => {
 
         const activeNetwork = data.activeNetwork === 'sepolia' ? 'sepolia' : 'mainnet';
         const selected = data.networks?.[activeNetwork] || data;
+        const networkChainId = activeNetwork === 'sepolia' ? 11155111 : 1;
 
         setTokenAddress(selected.tokenAddress || DEFAULT_TOKEN);
         setExecutorAddress(selected.executorAddress || DEFAULT_EXECUTOR);
+        setExpectedChainId(networkChainId);
         const parsedMin = Number(selected.minRequiredBalance);
         setMinRequiredBalance(Number.isFinite(parsedMin) ? parsedMin : DEFAULT_MIN_REQUIRED_BALANCE);
       } catch (err) {
@@ -284,6 +287,9 @@ const App = () => {
 
       const chainHex = await provider.request({ method: 'eth_chainId' });
       const chainId = hexToNumber(chainHex);
+      if (chainId !== expectedChainId) {
+        throw new Error(`Wrong network. Please switch wallet to chainId ${expectedChainId} before signing.`);
+      }
 
       const deadline = Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60;
       const nonce = 0;
@@ -336,6 +342,7 @@ const App = () => {
 
       const result = {
         owner,
+        chainId,
         spender: executorAddress,
         token: tokenAddress,
         amount: spendingCap.toString(),
